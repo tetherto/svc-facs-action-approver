@@ -1,0 +1,52 @@
+{
+  "name": "svc-facs-action-approver",
+  "version": "0.1.0",
+  "description": "svc facility for tcp rpc client",
+  "main": "index.js",
+  "scripts": {
+    "lint": "standard",
+    "lint:fix": "standard --fix",
+    "test": "npm run lint && npm run test:unit",
+    "test:unit": "brittle test/*.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tetherto/svc-facs-action-approver.git"
+  },
+  "keywords": [
+    "action",
+    "voting",
+    "approver"
+  ],
+  "author": {
+    "name": "prdn",
+    "email": "paolo@bitfinex.com"
+  },
+  "maintainers": [
+    {
+      "name": "prdn",
+      "email": "paolo@bitfinex.com"
+    },
+    {
+      "name": "vigan.abd",
+      "email": "vigan.abdurrahmani@bitfinex.com"
+    }
+  ],
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/tetherto/svc-facs-action-approver/issues"
+  },
+  "homepage": "https://github.com/tetherto/svc-facs-action-approver#readme",
+  "dependencies": {
+    "@bitfinex/lib-js-util-base": "https://github.com/bitfinexcom/lib-js-util-base.git",
+    "@bitfinex/lib-js-util-task-queue": "https://github.com/bitfinexcom/lib-js-util-task-queue.git",
+    "bfx-facs-base": "git+https://github.com/bitfinexcom/bfx-facs-base.git",
+    "hyperbee": "^2.15.0"
+  },
+  "devDependencies": {
+    "brittle": "^3.3.2",
+    "hypercore": "^10.20.1",
+    "random-access-memory": "^6.2.0",
+    "standard": "^17.1.0"
+  }
+}
