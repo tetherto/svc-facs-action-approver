@@ -28,10 +28,10 @@ test('action.approver.facility', async (t) => {
     })
     t.is(f1.bee.closed, true, 'should close bee')
 
-    const f2 = new ActionApproverFacility({}, { ns: 'm0', interval: 20000 }, { env: 'test' })
+    const f2 = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
     await f2.initDb(bee)
     f2.initWrk({})
-    f2.startInterval()
+    f2.startInterval(20000)
     t.is(f2.itv._destroyed, false)
 
     await new Promise((resolve, reject) => {

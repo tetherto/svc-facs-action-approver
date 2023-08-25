@@ -108,13 +108,13 @@ class ActionApproverFacility extends BaseFacility {
     this.wrk = wrk
   }
 
-  startInterval () {
-    if (!Number.isInteger(this.opts.interval) || this.opts.interval < 100) {
+  startInterval (interval) {
+    if (!Number.isInteger(interval) || interval < 100) {
       throw new Error('ERR_OPTS_INTERVAL_INVALID')
     }
 
     this.executing = false
-    this.itv = setInterval(this.execActions.bind(this), this.opts.interval)
+    this.itv = setInterval(this.execActions.bind(this), interval)
   }
 
   /**
