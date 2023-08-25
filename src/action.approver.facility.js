@@ -2,7 +2,7 @@
 
 const BaseFacility = require('bfx-facs-base')
 const Hyperbee = require('hyperbee')
-const { isNil, isPlainObject } = require('@bitfinex/lib-js-util-base')
+const { isPlainObject } = require('@bitfinex/lib-js-util-base')
 const { format: sformat } = require('util')
 const { setTimeout: sleep } = require('timers/promises')
 const { TaskQueue } = require('@bitfinex/lib-js-util-task-queue')
@@ -18,49 +18,12 @@ class ActionApproverFacility extends BaseFacility {
     this._hasConf = false
 
     this.init()
-  }
-
-  async _start (cb) {
-    try {
-      if (!(this.opts.bee instanceof Hyperbee)) {
-        throw new Error('ERR_OPTS_BEE_INSTANCE_INVALID')
-      }
-
-      if (!isPlainObject(this.opts.wrk)) {
-        throw new Error('ERR_OPTS_WRK_INVALID_TYPE')
-      }
-
-      if (!isNil(this.opts.interval) && (!Number.isInteger(this.opts.interval) || this.opts.interval < 100)) {
-        throw new Error('ERR_OPTS_INTERVAL_INVALID')
-      }
-
-      this.executing = false
-
-      await this.opts.bee.ready()
-
-      /** @type {Hyperbee} */
-      this.dbActVoting = this.opts.bee.sub('actions:voting')
-      /** @type {Hyperbee} */
-      this.dbActReady = this.opts.bee.sub('actions:ready')
-      /** @type {Hyperbee} */
-      this.dbActExec = this.opts.bee.sub('actions:executing')
-      /** @type {Hyperbee} */
-      this.dbActDone = this.opts.bee.sub('actions:done')
-
-      this.queue = new TaskQueue(1) // concurrency 1
-
-      if (this.opts.interval) {
-        this.itv = setInterval(this.execActions.bind(this), this.opts.interval)
-      }
-      return cb()
-    } catch (err) {
-      return cb(err)
-    }
+    this.queue = new TaskQueue(1) // concurrency 1
   }
 
   async _stop (cb) {
     try {
-      await this.opts.bee.close()
+      await this.bee.close()
 
       if (this.itv) {
         clearInterval(this.itv)
@@ -122,6 +85,39 @@ class ActionApproverFacility extends BaseFacility {
   }
 
   /**
+   * @param {Hyperbee} bee
+   */
+  async initDb (bee) {
+    if (!(bee instanceof Hyperbee)) {
+      throw new Error('ERR_OPTS_BEE_INSTANCE_INVALID')
+    }
+
+    this.bee = bee
+    await this.bee.ready()
+
+    this.dbActVoting = this.bee.sub('actions:voting')
+    this.dbActReady = this.bee.sub('actions:ready')
+    this.dbActExec = this.bee.sub('actions:executing')
+    this.dbActDone = this.bee.sub('actions:done')
+  }
+
+  initWrk (wrk) {
+    if (!isPlainObject(wrk)) {
+      throw new Error('ERR_OPTS_WRK_INVALID_TYPE')
+    }
+    this.wrk = wrk
+  }
+
+  startInterval () {
+    if (!Number.isInteger(this.opts.interval) || this.opts.interval < 100) {
+      throw new Error('ERR_OPTS_INTERVAL_INVALID')
+    }
+
+    this.executing = false
+    this.itv = setInterval(this.execActions.bind(this), this.opts.interval)
+  }
+
+  /**
    * @param {Object} opts
    * @param {string} opts.action
    * @param {any[]} opts.payload
@@ -135,7 +131,7 @@ class ActionApproverFacility extends BaseFacility {
     if (!action || typeof action !== 'string' || !action.trim()) {
       throw new Error('ERR_ACTION_INVALID')
     }
-    if (typeof this.opts.wrk[action] !== 'function') {
+    if (typeof this.wrk[action] !== 'function') {
       throw new Error('ERR_ACTION_UNKOWN')
     }
     if (!Array.isArray(payload)) {
@@ -271,7 +267,7 @@ class ActionApproverFacility extends BaseFacility {
     await this.dbActReady.del(key)
 
     try {
-      const result = await this.opts.wrk[data.action](...data.payload)
+      const result = await this.wrk[data.action](...data.payload)
       data.result = result
       data.status = ACTION_STATUS.COMPLETED
     } catch (err) {

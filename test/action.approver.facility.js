@@ -16,70 +16,40 @@ test('action.approver.facility', async (t) => {
     return db
   }
 
-  await t.test('start tests', async (t) => {
-    const bee = getBee()
-    const f1 = new ActionApproverFacility({}, { ns: 'm0', bee, wrk: {} }, { env: 'test' })
-
-    t.teardown(async () => {
-      await Promise.all([f1, f2].map(
-        fac => new Promise((resolve, reject) => fac._stop((err) => err ? reject(err) : resolve()))
-      ))
-    })
-
-    await t.execution(() => {
-      return new Promise((resolve, reject) => {
-        f1.start((err) => err ? reject(err) : resolve())
-      })
-    }, 'should work without interval')
-    t.is(f1.itv, undefined)
-
-    const f2 = new ActionApproverFacility({}, { ns: 'm0', bee, wrk: {}, interval: 20000 }, { env: 'test' })
-
-    await t.execution(() => {
-      return new Promise((resolve, reject) => {
-        f2.start((err) => err ? reject(err) : resolve())
-      })
-    }, 'should work without interval')
-    t.not(f2.itv, undefined)
-  })
-
   await t.test('stop tests', async (t) => {
     const bee = getBee()
-    const f1 = new ActionApproverFacility({}, { ns: 'm0', bee, wrk: {} }, { env: 'test' })
+    const f1 = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await f1.initDb(bee)
+    f1.initWrk({})
 
-    await new Promise((resolve, reject) => {
-      f1.start((err) => err ? reject(err) : resolve())
-    })
-    t.is(f1.opts.bee.closed, false)
+    t.is(f1.bee.closed, false)
     await new Promise((resolve, reject) => {
       f1.stop((err) => err ? reject(err) : resolve())
     })
-    t.is(f1.opts.bee.closed, true, 'should close bee')
+    t.is(f1.bee.closed, true, 'should close bee')
 
-    const f2 = new ActionApproverFacility({}, { ns: 'm0', bee, wrk: {}, interval: 20000 }, { env: 'test' })
-
-    await new Promise((resolve, reject) => {
-      f2.start((err) => err ? reject(err) : resolve())
-    })
+    const f2 = new ActionApproverFacility({}, { ns: 'm0', interval: 20000 }, { env: 'test' })
+    await f2.initDb(bee)
+    f2.initWrk({})
+    f2.startInterval()
     t.is(f2.itv._destroyed, false)
 
     await new Promise((resolve, reject) => {
       f2.stop((err) => err ? reject(err) : resolve())
     })
-    t.is(f2.opts.bee.closed, true, 'should close bee')
+    t.is(f2.bee.closed, true, 'should close bee')
     t.is(f2.itv._destroyed, true, 'should close interval')
   })
 
   await t.test('pushAction tests', async (t) => {
     const bee = getBee()
     const wrk = { ping: (nonce) => nonce + 1 }
-    const fac = new ActionApproverFacility({}, { ns: 'm0', bee, wrk }, { env: 'test' })
+    const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await fac.initDb(bee)
+    fac.initWrk(wrk)
 
     t.teardown(async () => {
       await new Promise((resolve, reject) => fac._stop((err) => err ? reject(err) : resolve()))
-    })
-    await new Promise((resolve, reject) => {
-      fac.start((err) => err ? reject(err) : resolve())
     })
 
     const data = { action: 'ping', payload: [1], voter: 'joe', reqVotes: 3 }
@@ -128,13 +98,12 @@ test('action.approver.facility', async (t) => {
   await t.test('getAction tests', async (t) => {
     const bee = getBee()
     const wrk = { ping: (nonce) => nonce + 1 }
-    const fac = new ActionApproverFacility({}, { ns: 'm0', bee, wrk }, { env: 'test' })
+    const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await fac.initDb(bee)
+    fac.initWrk(wrk)
 
     t.teardown(async () => {
       await new Promise((resolve, reject) => fac._stop((err) => err ? reject(err) : resolve()))
-    })
-    await new Promise((resolve, reject) => {
-      fac.start((err) => err ? reject(err) : resolve())
     })
 
     const id = Date.now()
@@ -171,13 +140,12 @@ test('action.approver.facility', async (t) => {
   await t.test('query tests', async (t) => {
     const bee = getBee()
     const wrk = { ping: (nonce) => nonce + 1 }
-    const fac = new ActionApproverFacility({}, { ns: 'm0', bee, wrk }, { env: 'test' })
+    const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await fac.initDb(bee)
+    fac.initWrk(wrk)
 
     t.teardown(async () => {
       await new Promise((resolve, reject) => fac._stop((err) => err ? reject(err) : resolve()))
-    })
-    await new Promise((resolve, reject) => {
-      fac.start((err) => err ? reject(err) : resolve())
     })
 
     const ids = [Date.now(), Date.now() + 3000]
@@ -238,13 +206,12 @@ test('action.approver.facility', async (t) => {
   await t.test('voteAction tests', async (t) => {
     const bee = getBee()
     const wrk = { ping: (nonce) => nonce + 1 }
-    const fac = new ActionApproverFacility({}, { ns: 'm0', bee, wrk }, { env: 'test' })
+    const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await fac.initDb(bee)
+    fac.initWrk(wrk)
 
     t.teardown(async () => {
       await new Promise((resolve, reject) => fac._stop((err) => err ? reject(err) : resolve()))
-    })
-    await new Promise((resolve, reject) => {
-      fac.start((err) => err ? reject(err) : resolve())
     })
 
     const pushData = { action: 'ping', payload: [1], voter: 'joe', reqVotes: 3 }
@@ -315,13 +282,12 @@ test('action.approver.facility', async (t) => {
   await t.test('cancelAction tests', async (t) => {
     const bee = getBee()
     const wrk = { ping: (nonce) => nonce + 1 }
-    const fac = new ActionApproverFacility({}, { ns: 'm0', bee, wrk }, { env: 'test' })
+    const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await fac.initDb(bee)
+    fac.initWrk(wrk)
 
     t.teardown(async () => {
       await new Promise((resolve, reject) => fac._stop((err) => err ? reject(err) : resolve()))
-    })
-    await new Promise((resolve, reject) => {
-      fac.start((err) => err ? reject(err) : resolve())
     })
 
     const pushData = { action: 'ping', payload: [1], voter: 'joe', reqVotes: 3 }
@@ -381,13 +347,12 @@ test('action.approver.facility', async (t) => {
       freeze: () => { },
       nail: () => Promise.reject(new Error('ERR_NAILED'))
     }
-    const fac = new ActionApproverFacility({}, { ns: 'm0', bee, wrk }, { env: 'test' })
+    const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await fac.initDb(bee)
+    fac.initWrk(wrk)
 
     t.teardown(async () => {
       await new Promise((resolve, reject) => fac._stop((err) => err ? reject(err) : resolve()))
-    })
-    await new Promise((resolve, reject) => {
-      fac.start((err) => err ? reject(err) : resolve())
     })
 
     const pushData = { action: 'ping', payload: [1], voter: 'joe', reqVotes: 1 }
