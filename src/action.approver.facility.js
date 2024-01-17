@@ -154,7 +154,7 @@ class ActionApproverFacility extends BaseFacility {
       throw new Error('ERR_REQ_VOTES_NEG_INVALID')
     }
 
-    const id = await this.queue.pushTask(async () => {
+    const data = await this.queue.pushTask(async () => {
       const id = Date.now()
       await sleep(50) // ensure unique timestamp
 
@@ -172,10 +172,10 @@ class ActionApproverFacility extends BaseFacility {
 
       const db = reqVotesPos > 1 ? this.dbActVoting : this.dbActReady
       await db.put(key, this._encode(data))
-      return id
+      return data
     })
 
-    return id
+    return data
   }
 
   async getAction (subdb, id) {
