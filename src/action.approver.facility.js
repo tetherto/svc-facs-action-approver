@@ -154,6 +154,9 @@ class ActionApproverFacility extends BaseFacility {
       throw new Error('ERR_REQ_VOTES_NEG_INVALID')
     }
 
+    // delete duplicate actions before adding new action
+    await this._deleteDuplicateActions(action, payload)
+
     const id = await this.queue.pushTask(async () => {
       const id = Date.now()
       await sleep(50) // ensure unique timestamp
@@ -176,6 +179,42 @@ class ActionApproverFacility extends BaseFacility {
     })
 
     return id
+  }
+
+  async _deleteDuplicateActions (action, payload) {
+    // delete duplicate actions in ready state
+    await this._delDupActionsFromDb(this.dbActReady, action, payload)
+
+    // delete duplicate actions in voting state
+    await this._delDupActionsFromDb(this.dbActVoting, action, payload)
+  }
+
+  async _delDupActionsFromDb (db, action, payload) {
+    const stream = db.createReadStream()
+    for await (const entry of stream) {
+      const data = this._decode(entry.value)
+
+      if (data.action === action) {
+        let duplicatesRemoved = false
+        const newTargets = payload[1]
+        const currentTargets = data.payload[1]
+        for (const target in newTargets) {
+          const newTargetIds = newTargets[target].calls.map(call => call.id)
+
+          // remove new target ids from current calls
+          const currentCalls = currentTargets[target]?.calls
+          const updatedCalls = currentCalls?.filter(call => !newTargetIds.includes(call.id))
+          if (updatedCalls && updatedCalls.length < currentCalls.length) {
+            currentTargets[target].calls = updatedCalls
+            duplicatesRemoved = true
+          }
+        }
+
+        if (duplicatesRemoved) {
+          await db.put(entry.key, this._encode(data))
+        }
+      }
+    }
   }
 
   async getAction (subdb, id) {
