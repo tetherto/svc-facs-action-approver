@@ -41,11 +41,11 @@
     "@bitfinex/lib-js-util-base": "https://github.com/bitfinexcom/lib-js-util-base.git",
     "@bitfinex/lib-js-util-task-queue": "https://github.com/bitfinexcom/lib-js-util-task-queue.git",
     "bfx-facs-base": "git+https://github.com/bitfinexcom/bfx-facs-base.git",
-    "hyperbee": "^2.15.0"
+    "hyperbee": "^2.18.2"
   },
   "devDependencies": {
     "brittle": "^3.3.2",
-    "hypercore": "^10.20.1",
+    "hypercore": "^10.33.4",
     "random-access-memory": "^6.2.0",
     "standard": "^17.1.0"
   }
