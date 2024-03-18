@@ -54,10 +54,11 @@ test('action.approver.facility', async (t) => {
 
     const data = { action: 'ping', payload: [1], voter: 'joe', reqVotes: 3 }
 
-    let id = await fac.pushAction(data)
-    t.is(typeof id, 'number', 'should return action id on success')
-    let res = await fac.getAction('voting', id)
-    t.alike(res.data, {
+    let res = await fac.pushAction(data)
+    t.is(typeof res, 'object', 'should return action object on success')
+    let id = res.id
+    let action = await fac.getAction('voting', id)
+    t.alike(action.data, {
       id,
       action: 'ping',
       payload: [1],
@@ -79,7 +80,7 @@ test('action.approver.facility', async (t) => {
       reqVotesPos: 5,
       reqVotesNeg: 2,
       status: ACTION_STATUS.VOTING
-    }, 'should support different voting conditions for approval and rejection')
+    }, 'should support different voting conditions for approval and   rejection')
 
     id = await fac.pushAction({ ...data, reqVotes: undefined, reqVotesPos: 1, reqVotesNeg: 2 })
     res = await fac.getAction('ready', id)
@@ -269,13 +270,13 @@ test('action.approver.facility', async (t) => {
     action = await fac.getAction('done', id)
     t.alike(
       action.data,
-      { ...tmpl, id, votesPos: ['joe'], votesNeg: ['john', 'jane', 'mike'], status: ACTION_STATUS.DENIED },
-      'when dissapproval condition is met status should be DENIED and action should be moved to done'
+      { ...tmpl, id, votesPos: ['joe'], votesNeg: ['john'], status: ACTION_STATUS.DENIED },
+      'when disapprove is cast, status should be DENIED and action should be moved to done'
     )
     await t.exception(
       fac.getAction('voting', id),
       /ERR_ACTION_ID_NOT_FOUND/,
-      'should remove action from voting uppon reaching dissapproval condition'
+      'should remove action from voting upon disapproval'
     )
   })
 

@@ -199,22 +199,25 @@ class ActionApproverFacility extends BaseFacility {
   async voteAction ({ id, voter, approve }) {
     const { key, data } = await this.getAction('voting', id)
 
-    const votes = approve ? data.votesPos : data.votesNeg
-    const reqVotes = approve ? data.reqVotesPos : data.reqVotesNeg
     if (data.votesPos.includes(voter) || data.votesNeg.includes(voter)) {
       throw new Error('ERR_VOTER_EXISTS')
     }
 
-    votes.push(voter)
-    if (votes.length < reqVotes) {
-      await this.dbActVoting.put(key, this._encode(data))
-      return
-    }
-    data.status = approve ? ACTION_STATUS.APPROVED : ACTION_STATUS.DENIED
+    if (approve) {
+      data.votesPos.push(voter)
+      if (data.votesPos.length >= data.reqVotesPos) {
+        data.status = ACTION_STATUS.APPROVED
 
-    const db = approve ? this.dbActReady : this.dbActDone
-    await this.dbActVoting.del(key)
-    await db.put(key, this._encode(data))
+        await this.dbActVoting.del(key)
+        await this.dbActReady.put(key, this._encode(data))
+      } else {
+        await this.dbActVoting.put(key, this._encode(data))
+      }
+    } else {
+      data.status = ACTION_STATUS.DENIED
+      await this.dbActVoting.del(key)
+      await this.dbActDone.put(key, this._encode(data))
+    }
   }
 
   /**
