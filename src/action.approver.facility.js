@@ -242,7 +242,7 @@ class ActionApproverFacility extends BaseFacility {
   async cancelActionsBatch ({ ids, voter }) {
     return await async.mapLimit(ids, 25, async id => {
       try {
-        await this.actionApprover_0.cancelAction({ id, voter })
+        await this.cancelAction({ id, voter })
         return true
       } catch (error) {
         this.debugError(`ERR_CANCEL_BATCH_ACTION-ID-${id}`, error)
