@@ -1,5 +1,6 @@
 'use strict'
 
+const async = require('async')
 const BaseFacility = require('bfx-facs-base')
 const Hyperbee = require('hyperbee')
 const { isPlainObject } = require('@bitfinex/lib-js-util-base')
@@ -231,6 +232,23 @@ class ActionApproverFacility extends BaseFacility {
 
     await this.dbActVoting.del(key)
     await this.dbActDone.put(key, this._encode(data))
+  }
+
+  /**
+   * @param {Object} opts
+   * @param {Array<number>} opts.ids
+   * @param {string|number} opts.voter
+   */
+  async cancelActionsBatch ({ ids, voter }) {
+    return await async.mapLimit(ids, 25, async id => {
+      try {
+        await this.actionApprover_0.cancelAction({ id, voter })
+        return true
+      } catch (error) {
+        this.debugError(`ERR_CANCEL_BATCH_ACTION-ID-${id}`, error)
+        return false
+      }
+    })
   }
 
   async execActions () {
