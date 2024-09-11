@@ -447,6 +447,101 @@ test('action.approver.facility', async (t) => {
     )
   })
 
+  await t.test('cancelActionsBatch large dataset tests', async t => {
+    const bee = getBee()
+    const wrk = { ping: nonce => nonce + 1, pong: nonce => nonce + 1 }
+    const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await fac.initDb(bee)
+    fac.initWrk(wrk)
+
+    t.teardown(async () => {
+      await new Promise((resolve, reject) =>
+        fac._stop(err => (err ? reject(err) : resolve()))
+      )
+    })
+
+    const numActions = 200
+    const pushData = Array.from({ length: numActions }, (_, i) => ({
+      action: 'ping',
+      payload: [i + 1],
+      voter: 'joe',
+      reqVotes: 3
+    }))
+
+    const tmpl = pushData.map((data, i) => ({
+      action: 'ping',
+      payload: [i + 1],
+      votesPos: ['joe', 'mike'],
+      votesNeg: ['jane'],
+      reqVotesPos: 3,
+      reqVotesNeg: 3,
+      status: ACTION_STATUS.VOTING
+    }))
+
+    // Push actions and vote concurrently
+    const ids = await Promise.all(
+      pushData.map(async (data, i) => {
+        const { id } = await fac.pushAction(data)
+        tmpl[i].id = id
+
+        await fac.voteAction({ id, voter: 'mike', approve: 1 })
+        await fac.voteAction({ id, voter: 'jane', approve: 0 })
+        return id
+      })
+    )
+
+    // Ensure all actions are in voting state
+    await Promise.all(
+      ids.map(async (id, i) => {
+        const votingAction = await fac.getAction('voting', id)
+        t.alike(votingAction.data, tmpl[i], `action ${i + 1} is in voting state`)
+      })
+    )
+
+    // Batch cancel actions for disapprover (which should fail)
+    const disapproverCancelAction = await fac.cancelActionsBatch({
+      ids,
+      voter: 'jane'
+    })
+
+    disapproverCancelAction.forEach((result, i) => {
+      t.alike(
+        result,
+        new Error(`ERR_CANCEL_BATCH_ACTION-ID-${ids[i]} ERR_CALLER_NOT_CREATOR`),
+        `disapprovers cannot cancel action ${i + 1}`
+      )
+    })
+
+    // Batch cancel actions for the creator
+    await t.execution(
+      fac.cancelActionsBatch({ ids, voter: 'joe' }),
+      'creator can cancel actions in batch'
+    )
+
+    // Ensure all actions are moved to done with status DENIED
+    await Promise.all(
+      ids.map(async (id, i) => {
+        const doneAction = await fac.getAction('done', id)
+        t.alike(
+          doneAction.data,
+          { ...tmpl[i], status: ACTION_STATUS.DENIED },
+          `action ${i + 1} is moved to done with status DENIED`
+        )
+      })
+    )
+
+    // Ensure actions are removed from voting
+    await Promise.all(
+      ids.map((id, i) =>
+        t.exception(
+          fac.getAction('voting', id),
+          /ERR_ACTION_ID_NOT_FOUND/,
+          `action ${i + 1} should be removed from voting upon cancellation`
+        )
+      )
+    )
+  })
+
   await t.test('execActions tests', async (t) => {
     const bee = getBee()
     const wrk = {
