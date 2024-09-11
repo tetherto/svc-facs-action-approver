@@ -96,6 +96,11 @@ class ActionApproverFacility extends BaseFacility {
     this.bee = bee
     await this.bee.ready()
 
+    /* 
+    Sub will be deprecated in future hyperbee releases. Holepunch recommends using sub-encoder (https://github.com/holepunchto/sub-encoder). 
+    Verify backward compatibility and thoroughly test before migrating. This will be handled separately.
+    */
+
     this.dbActVoting = this.bee.sub('actions:voting')
     this.dbActReady = this.bee.sub('actions:ready')
     this.dbActExec = this.bee.sub('actions:executing')
@@ -224,6 +229,10 @@ class ActionApproverFacility extends BaseFacility {
    * @param {string|number} opts.voter
    */
   async cancelAction ({ id, voter }) {
+    /* 
+    Performing one hyperbee operation at a time due to batch action limitations with multiple subs on the same DB. 
+    Switching to new sub-encoder can support batches but need to test for backwards compatibility. 
+    */
     const { key, data } = await this.getAction('voting', id)
     if (data.votesPos[0] !== voter) {
       throw new Error('ERR_CALLER_NOT_CREATOR')
