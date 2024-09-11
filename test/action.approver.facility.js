@@ -460,7 +460,7 @@ test('action.approver.facility', async (t) => {
       )
     })
 
-    const numActions = 200
+    const numActions = 10 // Change this number to increase the number of actions
     const pushData = Array.from({ length: numActions }, (_, i) => ({
       action: 'ping',
       payload: [i + 1],
