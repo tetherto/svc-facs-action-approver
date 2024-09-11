@@ -398,7 +398,11 @@ test('action.approver.facility', async (t) => {
     // Disapprover cannot cancel
     await t.alike(
       disapproverCancelAction[0],
-      new Error(`ERR_CANCEL_BATCH_ACTION-ID-${id1} ERR_CALLER_NOT_CREATOR`),
+      {
+        id: id1,
+        success: false,
+        error: `ERR_CANCEL_BATCH_ACTION-ID-${id1} ERR_CALLER_NOT_CREATOR`
+      },
       'disapprovers cannot cancel action'
     )
 
@@ -410,14 +414,27 @@ test('action.approver.facility', async (t) => {
     // Approver cannot cancel
     await t.alike(
       approverCancelAction[0],
-      new Error(`ERR_CANCEL_BATCH_ACTION-ID-${id1} ERR_CALLER_NOT_CREATOR`),
+      {
+        id: id1,
+        success: false,
+        error: `ERR_CANCEL_BATCH_ACTION-ID-${id1} ERR_CALLER_NOT_CREATOR`
+      },
       'disapprovers cannot cancel action'
     )
 
     // Creator can cancel both actions in batch
+    const cancelledAction = await fac.cancelActionsBatch({ ids: [id1, id2], voter: 'joe' })
     await t.execution(
-      fac.cancelActionsBatch({ ids: [id1, id2], voter: 'joe' }),
+      cancelledAction,
       'creator can cancel actions in batch'
+    )
+    await t.alike(
+      cancelledAction,
+      [
+        { id: id1, success: true },
+        { id: id2, success: true }
+      ],
+      'creator can cancel actions in batch and get success response'
     )
 
     // Ensure actions are moved to done with status DENIED
@@ -507,15 +524,25 @@ test('action.approver.facility', async (t) => {
     disapproverCancelAction.forEach((result, i) => {
       t.alike(
         result,
-        new Error(`ERR_CANCEL_BATCH_ACTION-ID-${ids[i]} ERR_CALLER_NOT_CREATOR`),
+        {
+          id: ids[i],
+          success: false,
+          error: `ERR_CANCEL_BATCH_ACTION-ID-${ids[i]} ERR_CALLER_NOT_CREATOR`
+        },
         `disapprovers cannot cancel action ${i + 1}`
       )
     })
 
     // Batch cancel actions for the creator
+    const cancelledActions = await fac.cancelActionsBatch({ ids, voter: 'joe' })
     await t.execution(
-      fac.cancelActionsBatch({ ids, voter: 'joe' }),
+      cancelledActions,
       'creator can cancel actions in batch'
+    )
+    await t.alike(
+      cancelledActions,
+      ids.map(id => ({ id, success: true })),
+      'creator can cancel actions in batch and get success response'
     )
 
     // Ensure all actions are moved to done with status DENIED
