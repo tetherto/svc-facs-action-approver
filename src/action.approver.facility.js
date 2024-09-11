@@ -245,8 +245,7 @@ class ActionApproverFacility extends BaseFacility {
         await this.cancelAction({ id, voter })
         return true
       } catch (error) {
-        this.debugError(`ERR_CANCEL_BATCH_ACTION-ID-${id}`, error)
-        return false
+        return new Error(`ERR_CANCEL_BATCH_ACTION-ID-${id} ${error.message}`)
       }
     })
   }
