@@ -54,11 +54,11 @@ test('action.approver.facility', async (t) => {
 
     const data = { action: 'ping', payload: [1], voter: 'joe', reqVotes: 3 }
 
-    let id = await fac.pushAction(data)
-    t.is(typeof id, 'number', 'should return action id on success')
-    let res = await fac.getAction('voting', id)
+    const pushAction1 = await fac.pushAction(data)
+    t.is(typeof pushAction1.id, 'number', 'should return action id on success')
+    let res = await fac.getAction('voting', pushAction1.id)
     t.alike(res.data, {
-      id,
+      id: pushAction1.id,
       action: 'ping',
       payload: [1],
       votesPos: ['joe'],
@@ -68,10 +68,10 @@ test('action.approver.facility', async (t) => {
       status: ACTION_STATUS.VOTING
     }, 'should store action as voting')
 
-    id = await fac.pushAction({ ...data, reqVotes: undefined, reqVotesPos: 5, reqVotesNeg: 2 })
-    res = await fac.getAction('voting', id)
+    const pushAction2 = await fac.pushAction({ ...data, reqVotes: undefined, reqVotesPos: 5, reqVotesNeg: 2 })
+    res = await fac.getAction('voting', pushAction2.id)
     t.alike(res.data, {
-      id,
+      id: pushAction2.id,
       action: 'ping',
       payload: [1],
       votesPos: ['joe'],
@@ -81,10 +81,10 @@ test('action.approver.facility', async (t) => {
       status: ACTION_STATUS.VOTING
     }, 'should support different voting conditions for approval and rejection')
 
-    id = await fac.pushAction({ ...data, reqVotes: undefined, reqVotesPos: 1, reqVotesNeg: 2 })
-    res = await fac.getAction('ready', id)
+    const pushAction3 = await fac.pushAction({ ...data, reqVotes: undefined, reqVotesPos: 1, reqVotesNeg: 2 })
+    res = await fac.getAction('ready', pushAction3.id)
     t.alike(res.data, {
-      id,
+      id: pushAction3.id,
       action: 'ping',
       payload: [1],
       votesPos: ['joe'],
@@ -225,55 +225,55 @@ test('action.approver.facility', async (t) => {
       status: ACTION_STATUS.VOTING
     }
 
-    let id = await fac.pushAction(pushData)
-    t.is(typeof id, 'number', 'should return action id on success')
+    const pushAction1 = await fac.pushAction(pushData)
+    t.is(typeof pushAction1.id, 'number', 'should return action id on success')
 
-    await fac.voteAction({ id, voter: 'john', approve: 1 })
+    await fac.voteAction({ id: pushAction1.id, voter: 'john', approve: 1 })
 
-    let action = await fac.getAction('voting', id)
+    let action = await fac.getAction('voting', pushAction1.id)
     t.alike(
       action.data,
-      { ...tmpl, id, votesPos: ['joe', 'john'] },
+      { ...tmpl, id: pushAction1.id, votesPos: ['joe', 'john'] },
       'vote action should push approve voter to votesPos'
     )
 
-    await fac.voteAction({ id, voter: 'jane', approve: 0 })
+    await fac.voteAction({ id: pushAction1.id, voter: 'jane', approve: 0 })
 
-    action = await fac.getAction('voting', id)
+    action = await fac.getAction('voting', pushAction1.id)
     t.alike(
       action.data,
-      { ...tmpl, id, votesPos: ['joe', 'john'], votesNeg: ['jane'] },
+      { ...tmpl, id: pushAction1.id, votesPos: ['joe', 'john'], votesNeg: ['jane'] },
       'vote action should push disapprove voter to votesNeg'
     )
 
-    await fac.voteAction({ id, voter: 'mike', approve: 1 })
+    await fac.voteAction({ id: pushAction1.id, voter: 'mike', approve: 1 })
 
-    action = await fac.getAction('ready', id)
+    action = await fac.getAction('ready', pushAction1.id)
     t.alike(
       action.data,
-      { ...tmpl, id, votesPos: ['joe', 'john', 'mike'], votesNeg: ['jane'], status: ACTION_STATUS.APPROVED },
+      { ...tmpl, id: pushAction1.id, votesPos: ['joe', 'john', 'mike'], votesNeg: ['jane'], status: ACTION_STATUS.APPROVED },
       'when approval condition is met status should be APPROVED and action should be moved to ready'
     )
     await t.exception(
-      fac.getAction('voting', id),
+      fac.getAction('voting', pushAction1.id),
       /ERR_ACTION_ID_NOT_FOUND/,
       'should remove action from voting uppon reaching approval condition'
     )
 
-    id = await fac.pushAction(pushData)
+    const pushAction2 = await fac.pushAction(pushData)
 
-    await fac.voteAction({ id, voter: 'john', approve: 0 })
-    await fac.voteAction({ id, voter: 'jane', approve: 0 })
-    await fac.voteAction({ id, voter: 'mike', approve: 0 })
+    await fac.voteAction({ id: pushAction2.id, voter: 'john', approve: 0 })
+    await fac.voteAction({ id: pushAction2.id, voter: 'jane', approve: 0 })
+    await fac.voteAction({ id: pushAction2.id, voter: 'mike', approve: 0 })
 
-    action = await fac.getAction('done', id)
+    action = await fac.getAction('done', pushAction2.id)
     t.alike(
       action.data,
-      { ...tmpl, id, votesPos: ['joe'], votesNeg: ['john', 'jane', 'mike'], status: ACTION_STATUS.DENIED },
+      { ...tmpl, id: pushAction2.id, votesPos: ['joe'], votesNeg: ['john', 'jane', 'mike'], status: ACTION_STATUS.DENIED },
       'when dissapproval condition is met status should be DENIED and action should be moved to done'
     )
     await t.exception(
-      fac.getAction('voting', id),
+      fac.getAction('voting', pushAction2.id),
       /ERR_ACTION_ID_NOT_FOUND/,
       'should remove action from voting uppon reaching dissapproval condition'
     )
@@ -301,15 +301,15 @@ test('action.approver.facility', async (t) => {
       status: ACTION_STATUS.VOTING
     }
 
-    const id = await fac.pushAction(pushData)
+    const { id } = await fac.pushAction(pushData)
     t.is(typeof id, 'number', 'should return action id on success')
     tmpl.id = id
 
     await fac.voteAction({ id, voter: 'mike', approve: 1 })
     await fac.voteAction({ id, voter: 'jane', approve: 0 })
 
-    let action = await fac.getAction('voting', id)
-    t.alike(action.data, tmpl)
+    const votingAction = await fac.getAction('voting', id)
+    t.alike(votingAction.data, tmpl)
 
     await t.exception(
       fac.cancelAction({ id, voter: 'jane' }),
@@ -327,16 +327,245 @@ test('action.approver.facility', async (t) => {
       'creator can cancel action'
     )
 
-    action = await fac.getAction('done', id)
+    const doneAction = await fac.getAction('done', id)
     t.alike(
-      action.data,
+      doneAction.data,
       { ...tmpl, status: ACTION_STATUS.DENIED },
       'canceled action should be moved to done with status DENIED'
     )
+
     await t.exception(
       fac.getAction('voting', id),
       /ERR_ACTION_ID_NOT_FOUND/,
       'should remove action from voting uppon cancelation'
+    )
+  })
+
+  await t.test('cancelActionsBatch tests', async t => {
+    const bee = getBee()
+    const wrk = { ping: nonce => nonce + 1, pong: nonce => nonce + 1 }
+    const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await fac.initDb(bee)
+    fac.initWrk(wrk)
+
+    t.teardown(async () => {
+      await new Promise((resolve, reject) =>
+        fac._stop(err => (err ? reject(err) : resolve()))
+      )
+    })
+
+    const pushData1 = { action: 'ping', payload: [1], voter: 'joe', reqVotes: 3 }
+    const pushData2 = { action: 'pong', payload: [2], voter: 'joe', reqVotes: 3 }
+    const tmpl1 = {
+      action: 'ping',
+      payload: [1],
+      votesPos: ['joe', 'mike'],
+      votesNeg: ['jane'],
+      reqVotesPos: 3,
+      reqVotesNeg: 3,
+      status: ACTION_STATUS.VOTING
+    }
+    const tmpl2 = {
+      action: 'pong',
+      payload: [2],
+      votesPos: ['joe'],
+      votesNeg: [],
+      reqVotesPos: 3,
+      reqVotesNeg: 3,
+      status: ACTION_STATUS.VOTING
+    }
+
+    // Push two actions
+    const { id: id1 } = await fac.pushAction(pushData1)
+    const { id: id2 } = await fac.pushAction(pushData2)
+    tmpl1.id = id1
+    tmpl2.id = id2
+
+    await fac.voteAction({ id: id1, voter: 'mike', approve: 1 })
+    await fac.voteAction({ id: id1, voter: 'jane', approve: 0 })
+
+    // Ensure actions are in voting state
+    const votingAction1 = await fac.getAction('voting', id1)
+    const votingAction2 = await fac.getAction('voting', id2)
+    t.alike(votingAction1.data, tmpl1, 'first action is in voting state')
+    t.alike(votingAction2.data, tmpl2, 'second action is in voting state')
+
+    const disapproverCancelAction = await fac.cancelActionsBatch({
+      ids: [id1],
+      voter: 'jane'
+    })
+
+    // Disapprover cannot cancel
+    await t.alike(
+      disapproverCancelAction[0],
+      {
+        id: id1,
+        success: false,
+        error: `ERR_CANCEL_BATCH_ACTION-ID-${id1} ERR_CALLER_NOT_CREATOR`
+      },
+      'disapprovers cannot cancel action'
+    )
+
+    const approverCancelAction = await fac.cancelActionsBatch({
+      ids: [id1],
+      voter: 'jane'
+    })
+
+    // Approver cannot cancel
+    await t.alike(
+      approverCancelAction[0],
+      {
+        id: id1,
+        success: false,
+        error: `ERR_CANCEL_BATCH_ACTION-ID-${id1} ERR_CALLER_NOT_CREATOR`
+      },
+      'disapprovers cannot cancel action'
+    )
+
+    // Creator can cancel both actions in batch
+    const cancelledAction = await fac.cancelActionsBatch({ ids: [id1, id2], voter: 'joe' })
+    await t.execution(
+      cancelledAction,
+      'creator can cancel actions in batch'
+    )
+    await t.alike(
+      cancelledAction,
+      [
+        { id: id1, success: true },
+        { id: id2, success: true }
+      ],
+      'creator can cancel actions in batch and get success response'
+    )
+
+    // Ensure actions are moved to done with status DENIED
+    const doneAction1 = await fac.getAction('done', id1)
+    const doneAction2 = await fac.getAction('done', id2)
+    t.alike(
+      doneAction1.data,
+      { ...tmpl1, status: ACTION_STATUS.DENIED },
+      'first canceled action should be moved to done with status DENIED'
+    )
+    t.alike(
+      doneAction2.data,
+      { ...tmpl2, status: ACTION_STATUS.DENIED },
+      'second canceled action should be moved to done with status DENIED'
+    )
+
+    // Ensure actions are removed from voting
+    await t.exception(
+      fac.getAction('voting', id1),
+      /ERR_ACTION_ID_NOT_FOUND/,
+      'first action should be removed from voting upon cancellation'
+    )
+    await t.exception(
+      fac.getAction('voting', id2),
+      /ERR_ACTION_ID_NOT_FOUND/,
+      'second action should be removed from voting upon cancellation'
+    )
+  })
+
+  await t.test('cancelActionsBatch large dataset tests', async t => {
+    const bee = getBee()
+    const wrk = { ping: nonce => nonce + 1, pong: nonce => nonce + 1 }
+    const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await fac.initDb(bee)
+    fac.initWrk(wrk)
+
+    t.teardown(async () => {
+      await new Promise((resolve, reject) =>
+        fac._stop(err => (err ? reject(err) : resolve()))
+      )
+    })
+
+    const numActions = 100 // Change this number to increase the number of actions
+    const pushData = Array.from({ length: numActions }, (_, i) => ({
+      action: 'ping',
+      payload: [i + 1],
+      voter: 'joe',
+      reqVotes: 3
+    }))
+
+    const tmpl = pushData.map((data, i) => ({
+      action: 'ping',
+      payload: [i + 1],
+      votesPos: ['joe', 'mike'],
+      votesNeg: ['jane'],
+      reqVotesPos: 3,
+      reqVotesNeg: 3,
+      status: ACTION_STATUS.VOTING
+    }))
+
+    // Push actions and vote concurrently
+    const ids = await Promise.all(
+      pushData.map(async (data, i) => {
+        const { id } = await fac.pushAction(data)
+        tmpl[i].id = id
+
+        await fac.voteAction({ id, voter: 'mike', approve: 1 })
+        await fac.voteAction({ id, voter: 'jane', approve: 0 })
+        return id
+      })
+    )
+
+    // Ensure all actions are in voting state
+    await Promise.all(
+      ids.map(async (id, i) => {
+        const votingAction = await fac.getAction('voting', id)
+        t.alike(votingAction.data, tmpl[i], `action ${i + 1} is in voting state`)
+      })
+    )
+
+    // Batch cancel actions for disapprover (which should fail)
+    const disapproverCancelAction = await fac.cancelActionsBatch({
+      ids,
+      voter: 'jane'
+    })
+
+    disapproverCancelAction.forEach((result, i) => {
+      t.alike(
+        result,
+        {
+          id: ids[i],
+          success: false,
+          error: `ERR_CANCEL_BATCH_ACTION-ID-${ids[i]} ERR_CALLER_NOT_CREATOR`
+        },
+        `disapprovers cannot cancel action ${i + 1}`
+      )
+    })
+
+    // Batch cancel actions for the creator
+    const cancelledActions = await fac.cancelActionsBatch({ ids, voter: 'joe' })
+    await t.execution(
+      cancelledActions,
+      'creator can cancel actions in batch'
+    )
+    await t.alike(
+      cancelledActions,
+      ids.map(id => ({ id, success: true })),
+      'creator can cancel actions in batch and get success response'
+    )
+
+    // Ensure all actions are moved to done with status DENIED
+    await Promise.all(
+      ids.map(async (id, i) => {
+        const doneAction = await fac.getAction('done', id)
+        t.alike(
+          doneAction.data,
+          { ...tmpl[i], status: ACTION_STATUS.DENIED },
+          `action ${i + 1} is moved to done with status DENIED`
+        )
+      })
+    )
+
+    // Ensure actions are removed from voting
+    await Promise.all(
+      ids.map((id, i) =>
+        t.exception(
+          fac.getAction('voting', id),
+          /ERR_ACTION_ID_NOT_FOUND/,
+          `action ${i + 1} should be removed from voting upon cancellation`
+        )
+      )
     )
   })
 
@@ -356,7 +585,7 @@ test('action.approver.facility', async (t) => {
     })
 
     const pushData = { action: 'ping', payload: [1], voter: 'joe', reqVotes: 1 }
-    let id = await fac.pushAction(pushData)
+    const { id } = await fac.pushAction(pushData)
     const tmpl = {
       id,
       action: 'ping',
@@ -391,16 +620,16 @@ test('action.approver.facility', async (t) => {
       'upon successful exection status should be COMPLETED and result should be stored'
     )
 
-    id = await fac.pushAction({ ...pushData, action: 'freeze' })
-    tmpl.id = id
+    const pushAction2 = await fac.pushAction({ ...pushData, action: 'freeze' })
+    tmpl.id = pushAction2.id
     await fac.execActions()
-    action = await fac.getAction('done', id)
+    action = await fac.getAction('done', pushAction2.id)
     t.is(action.data.result, undefined, 'result should be omitted if it is void')
 
-    id = await fac.pushAction({ ...pushData, action: 'nail' })
-    tmpl.id = id
+    const pushAction3 = await fac.pushAction({ ...pushData, action: 'nail' })
+    tmpl.id = pushAction3.id
     await fac.execActions()
-    action = await fac.getAction('done', id)
+    action = await fac.getAction('done', pushAction3.id)
     t.is(action.data.error.startsWith('Error: ERR_NAILED'), true, 'error should be stored as string on execution failure')
   })
 })

@@ -1,5 +1,6 @@
 'use strict'
 
+const async = require('async')
 const BaseFacility = require('bfx-facs-base')
 const Hyperbee = require('hyperbee')
 const { isPlainObject } = require('@bitfinex/lib-js-util-base')
@@ -94,6 +95,11 @@ class ActionApproverFacility extends BaseFacility {
 
     this.bee = bee
     await this.bee.ready()
+
+    /* 
+    Sub will be deprecated in future hyperbee releases. Holepunch recommends using sub-encoder (https://github.com/holepunchto/sub-encoder). 
+    Verify backward compatibility and thoroughly test before migrating. This will be handled separately.
+    */
 
     this.dbActVoting = this.bee.sub('actions:voting')
     this.dbActReady = this.bee.sub('actions:ready')
@@ -223,6 +229,10 @@ class ActionApproverFacility extends BaseFacility {
    * @param {string|number} opts.voter
    */
   async cancelAction ({ id, voter }) {
+    /* 
+    Performing one hyperbee operation at a time due to batch action limitations with multiple subs on the same DB. 
+    Switching to new sub-encoder can support batches but need to test for backwards compatibility. 
+    */
     const { key, data } = await this.getAction('voting', id)
     if (data.votesPos[0] !== voter) {
       throw new Error('ERR_CALLER_NOT_CREATOR')
@@ -231,6 +241,26 @@ class ActionApproverFacility extends BaseFacility {
 
     await this.dbActVoting.del(key)
     await this.dbActDone.put(key, this._encode(data))
+  }
+
+  /**
+   * @param {Object} opts
+   * @param {Array<number>} opts.ids
+   * @param {string|number} opts.voter
+   */
+  async cancelActionsBatch ({ ids, voter }) {
+    return await async.mapLimit(ids, 25, async id => {
+      try {
+        await this.cancelAction({ id, voter })
+        return { id, success: true }
+      } catch (error) {
+        return {
+          id,
+          success: false,
+          error: `ERR_CANCEL_BATCH_ACTION-ID-${id} ${error.message}`
+        }
+      }
+    })
   }
 
   async execActions () {
