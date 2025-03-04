@@ -3,13 +3,12 @@
 const async = require('async')
 const BaseFacility = require('bfx-facs-base')
 const Hyperbee = require('hyperbee')
-const { isPlainObject } = require('@bitfinex/lib-js-util-base')
 const { format: sformat } = require('util')
 const { setTimeout: sleep } = require('timers/promises')
 const { TaskQueue } = require('@bitfinex/lib-js-util-task-queue')
 
 const { ACTION_STATUS } = require('./constants')
-const { convIntToBin } = require('./utils')
+const { convIntToBin, isValidObject } = require('./utils')
 
 class ActionApproverFacility extends BaseFacility {
   constructor (caller, opts, ctx) {
@@ -96,8 +95,8 @@ class ActionApproverFacility extends BaseFacility {
     this.bee = bee
     await this.bee.ready()
 
-    /* 
-    Sub will be deprecated in future hyperbee releases. Holepunch recommends using sub-encoder (https://github.com/holepunchto/sub-encoder). 
+    /*
+    Sub will be deprecated in future hyperbee releases. Holepunch recommends using sub-encoder (https://github.com/holepunchto/sub-encoder).
     Verify backward compatibility and thoroughly test before migrating. This will be handled separately.
     */
 
@@ -108,7 +107,7 @@ class ActionApproverFacility extends BaseFacility {
   }
 
   initWrk (wrk) {
-    if (!isPlainObject(wrk)) {
+    if (!isValidObject(wrk)) {
       throw new Error('ERR_OPTS_WRK_INVALID_TYPE')
     }
     this.wrk = wrk
@@ -229,9 +228,9 @@ class ActionApproverFacility extends BaseFacility {
    * @param {string|number} opts.voter
    */
   async cancelAction ({ id, voter }) {
-    /* 
-    Performing one hyperbee operation at a time due to batch action limitations with multiple subs on the same DB. 
-    Switching to new sub-encoder can support batches but need to test for backwards compatibility. 
+    /*
+    Performing one hyperbee operation at a time due to batch action limitations with multiple subs on the same DB.
+    Switching to new sub-encoder can support batches but need to test for backwards compatibility.
     */
     const { key, data } = await this.getAction('voting', id)
     if (data.votesPos[0] !== voter) {
