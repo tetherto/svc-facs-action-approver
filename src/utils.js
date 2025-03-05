@@ -10,6 +10,12 @@ const convIntToBin = (val) => {
   return buf
 }
 
+/**
+ * @param {object} val
+ */
+const isValidObject = (val) => val !== null && typeof val === 'object' && !Array.isArray(val)
+
 module.exports = {
-  convIntToBin
+  convIntToBin,
+  isValidObject
 }
