@@ -297,11 +297,10 @@ class ActionApproverFacility extends BaseFacility {
     const [params, ...otherPayload] = data.payload
     const paramsWithActionId = [...params, { actionId: data.id }]
 
+    const updatedPayload = [paramsWithActionId, ...otherPayload]
+
     try {
-      const result = await this.wrk[data.action]([
-        paramsWithActionId,
-        ...otherPayload
-      ])
+      const result = await this.wrk[data.action](...updatedPayload)
       data.result = result
       data.status = ACTION_STATUS.COMPLETED
     } catch (err) {
