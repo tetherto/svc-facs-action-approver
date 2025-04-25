@@ -294,9 +294,13 @@ class ActionApproverFacility extends BaseFacility {
     data.status = ACTION_STATUS.EXECUTING
     await this.dbActExec.put(key, this._encode(data))
     await this.dbActReady.del(key)
+    const [params, ...otherPayload] = data.payload
+    const paramsWithActionId = [...params, { actionId: data.id }]
+
+    const updatedPayload = [paramsWithActionId, ...otherPayload]
 
     try {
-      const result = await this.wrk[data.action](...data.payload)
+      const result = await this.wrk[data.action](...updatedPayload)
       data.result = result
       data.status = ACTION_STATUS.COMPLETED
     } catch (err) {
