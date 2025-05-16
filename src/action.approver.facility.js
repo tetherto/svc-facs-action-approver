@@ -132,7 +132,7 @@ class ActionApproverFacility extends BaseFacility {
    * @param {number} [opts.reqVotesNeg]
    * @returns {Promise<string>}
    */
-  async pushAction ({ action, payload, voter, reqVotes, reqVotesPos, reqVotesNeg }) {
+  async pushAction ({ action, payload, voter, reqVotes, reqVotesPos, reqVotesNeg, batchActionUID }) {
     if (!action || typeof action !== 'string' || !action.trim()) {
       throw new Error('ERR_ACTION_INVALID')
     }
@@ -165,6 +165,7 @@ class ActionApproverFacility extends BaseFacility {
 
       const data = {
         id,
+        batchActionUID,
         action,
         payload,
         votesPos: [voter],
