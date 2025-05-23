@@ -296,8 +296,10 @@ class ActionApproverFacility extends BaseFacility {
     await this.dbActExec.put(key, this._encode(data))
     await this.dbActReady.del(key)
     const [params, ...otherPayload] = data.payload
-    const paramsWithActionId = [...params, { actionId: data.id }]
-
+    const paramsWithActionId = [
+      ...params,
+      { actionId: data.id, voter: data.votesPos?.[0] }
+    ]
     const updatedPayload = [paramsWithActionId, ...otherPayload]
 
     try {
