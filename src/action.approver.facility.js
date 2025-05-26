@@ -298,7 +298,7 @@ class ActionApproverFacility extends BaseFacility {
     const [params, ...otherPayload] = data.payload
     const paramsWithActionId = [
       ...params,
-      { actionId: data.id, voter: data.votesPos?.[0] }
+      { actionId: data.id, user: data.votesPos?.[0] }
     ]
     const updatedPayload = [paramsWithActionId, ...otherPayload]
 
