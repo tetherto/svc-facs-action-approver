@@ -1,5 +1,5 @@
 {
-  "name": "svc-facs-action-approver",
+  "name": "@tetherto/svc-facs-action-approver",
   "version": "1.0.0",
   "description": "svc facility for tcp rpc client",
   "main": "index.js",
