@@ -38,10 +38,10 @@
   },
   "homepage": "https://github.com/tetherto/svc-facs-action-approver#readme",
   "dependencies": {
+    "@bitfinex/bfx-facs-base": "^1.1.0",
     "@bitfinex/lib-js-util-task-queue": "git+https://github.com/bitfinexcom/lib-js-util-task-queue.git",
-    "@bitfinex/bfx-facs-base": "git+https://github.com/bitfinexcom/bfx-facs-base.git",
-    "hyperbee": "^2.18.2",
-    "async": "^3.2.1"
+    "async": "^3.2.1",
+    "hyperbee": "^2.18.2"
   },
   "devDependencies": {
     "brittle": "^3.3.2",
