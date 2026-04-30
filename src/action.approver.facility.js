@@ -1,7 +1,7 @@
 'use strict'
 
 const async = require('async')
-const BaseFacility = require('bfx-facs-base')
+const BaseFacility = require('@bitfinex/bfx-facs-base')
 const Hyperbee = require('hyperbee')
 const { format: sformat } = require('util')
 const { setTimeout: sleep } = require('timers/promises')

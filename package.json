@@ -1,6 +1,6 @@
 {
   "name": "svc-facs-action-approver",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "svc facility for tcp rpc client",
   "main": "index.js",
   "scripts": {
@@ -39,7 +39,7 @@
   "homepage": "https://github.com/tetherto/svc-facs-action-approver#readme",
   "dependencies": {
     "@bitfinex/lib-js-util-task-queue": "git+https://github.com/bitfinexcom/lib-js-util-task-queue.git",
-    "bfx-facs-base": "git+https://github.com/bitfinexcom/bfx-facs-base.git",
+    "@bitfinex/bfx-facs-base": "git+https://github.com/bitfinexcom/bfx-facs-base.git",
     "hyperbee": "^2.18.2",
     "async": "^3.2.1"
   },
