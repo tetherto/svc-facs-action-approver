@@ -572,7 +572,7 @@ test('action.approver.facility', async (t) => {
   await t.test('execActions tests', async (t) => {
     const bee = getBee()
     const wrk = {
-      ping: (nonce) => nonce + 1,
+      ping: ([nonce]) => nonce + 1,
       freeze: () => { },
       nail: () => Promise.reject(new Error('ERR_NAILED'))
     }
@@ -584,12 +584,12 @@ test('action.approver.facility', async (t) => {
       await new Promise((resolve, reject) => fac._stop((err) => err ? reject(err) : resolve()))
     })
 
-    const pushData = { action: 'ping', payload: [1], voter: 'joe', reqVotes: 1 }
+    const pushData = { action: 'ping', payload: [[1]], voter: 'joe', reqVotes: 1 }
     const { id } = await fac.pushAction(pushData)
     const tmpl = {
       id,
       action: 'ping',
-      payload: [1],
+      payload: [[1]],
       votesPos: ['joe'],
       votesNeg: [],
       reqVotesPos: 1,
