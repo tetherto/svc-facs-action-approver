@@ -1,0 +1,397 @@
+{
+  "version": 1,
+  "schema": [
+    {
+      "name": "actions-voting",
+      "namespace": "action-approver",
+      "compact": false,
+      "flagsPosition": 7,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "action",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "payload",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "votesPos",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "votesNeg",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "reqVotesPos",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "reqVotesNeg",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "eligibleVoters",
+          "required": false,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "target",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "status",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "result",
+          "required": false,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "claimedBy",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "claimedAt",
+          "required": false,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "batchActionUID",
+          "required": false,
+          "type": "string",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "actions-ready",
+      "namespace": "action-approver",
+      "compact": false,
+      "flagsPosition": 7,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "action",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "payload",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "votesPos",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "votesNeg",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "reqVotesPos",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "reqVotesNeg",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "eligibleVoters",
+          "required": false,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "target",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "status",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "result",
+          "required": false,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "claimedBy",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "claimedAt",
+          "required": false,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "batchActionUID",
+          "required": false,
+          "type": "string",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "actions-executing",
+      "namespace": "action-approver",
+      "compact": false,
+      "flagsPosition": 7,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "action",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "payload",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "votesPos",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "votesNeg",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "reqVotesPos",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "reqVotesNeg",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "eligibleVoters",
+          "required": false,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "target",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "status",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "result",
+          "required": false,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "claimedBy",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "claimedAt",
+          "required": false,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "batchActionUID",
+          "required": false,
+          "type": "string",
+          "version": 1
+        }
+      ]
+    },
+    {
+      "name": "actions-done",
+      "namespace": "action-approver",
+      "compact": false,
+      "flagsPosition": 7,
+      "fields": [
+        {
+          "name": "id",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "action",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "payload",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "votesPos",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "votesNeg",
+          "required": true,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "reqVotesPos",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "reqVotesNeg",
+          "required": true,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "eligibleVoters",
+          "required": false,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "target",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "status",
+          "required": true,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "error",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "result",
+          "required": false,
+          "type": "json",
+          "version": 1
+        },
+        {
+          "name": "claimedBy",
+          "required": false,
+          "type": "string",
+          "version": 1
+        },
+        {
+          "name": "claimedAt",
+          "required": false,
+          "type": "uint",
+          "version": 1
+        },
+        {
+          "name": "batchActionUID",
+          "required": false,
+          "type": "string",
+          "version": 1
+        }
+      ]
+    }
+  ]
+}

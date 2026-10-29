@@ -7,8 +7,19 @@ const { format: sformat } = require('util')
 const { setTimeout: sleep } = require('timers/promises')
 const { TaskQueue } = require('@bitfinex/lib-js-util-task-queue')
 
-const { ACTION_STATUS } = require('./constants')
-const { convIntToBin, isValidObject } = require('./utils')
+const {
+  ACTION_STATUS,
+  PARTITIONS,
+  ENGINES,
+  DEFAULT_EXECUTING_TIMEOUT_MS
+} = require('./constants')
+const {
+  isValidObject,
+  computeQuorumThresholds,
+  includesVoter,
+  withoutVoter
+} = require('./utils')
+const { createStore } = require('./stores')
 
 class ActionApproverFacility extends BaseFacility {
   constructor (caller, opts, ctx) {
@@ -19,16 +30,74 @@ class ActionApproverFacility extends BaseFacility {
 
     this.init()
     this.queue = new TaskQueue(1) // concurrency 1
+    this.store = null
+    this.executingTimeout = DEFAULT_EXECUTING_TIMEOUT_MS
+    this.claimId = null
+    this._recoverItv = null
+  }
+
+  /**
+   * Store-agnostic init. Prefer this over initDb.
+   * @param {object} opts
+   * @param {'hyperbee'|'hyperdb'|'mongodb'} opts.engine
+   * @param {import('hyperbee')} [opts.bee]
+   * @param {object} [opts.hyperdb]
+   * @param {object} [opts.mongo] - Caller worker's dbMongo_m0
+   * @param {number} [opts.executingTimeout] - Claim lease timeout ms (default 5m)
+   * @param {string} [opts.claimId] - Identity recorded on EXECUTING claims
+   */
+  async initStore (opts = {}) {
+    const engine = opts.engine || ENGINES.HYPERBEE
+    this.executingTimeout = Number.isInteger(opts.executingTimeout) && opts.executingTimeout > 0
+      ? opts.executingTimeout
+      : DEFAULT_EXECUTING_TIMEOUT_MS
+    this.claimId = opts.claimId || `pid:${process.pid}`
+
+    this.store = createStore({
+      engine,
+      bee: opts.bee,
+      hyperdb: opts.hyperdb,
+      mongo: opts.mongo
+    })
+    await this.store.ready()
+
+    // Back-compat accessors used by existing tests
+    if (engine === ENGINES.HYPERBEE) {
+      this.bee = opts.bee
+      this.dbActVoting = this.store._dbs[PARTITIONS.VOTING]
+      this.dbActReady = this.store._dbs[PARTITIONS.READY]
+      this.dbActExec = this.store._dbs[PARTITIONS.EXECUTING]
+      this.dbActDone = this.store._dbs[PARTITIONS.DONE]
+    }
+
+    return this
+  }
+
+  /**
+   * @deprecated Prefer initStore({ engine: 'hyperbee', bee })
+   * @param {Hyperbee} bee
+   */
+  async initDb (bee) {
+    if (!(bee instanceof Hyperbee)) {
+      throw new Error('ERR_OPTS_BEE_INSTANCE_INVALID')
+    }
+    return this.initStore({ engine: ENGINES.HYPERBEE, bee })
   }
 
   async _stop (cb) {
     try {
-      await this.bee.close()
-
       if (this.itv) {
         clearInterval(this.itv)
       }
-
+      if (this._recoverItv) {
+        clearInterval(this._recoverItv)
+        this._recoverItv = null
+      }
+      if (this.store) {
+        await this.store.close()
+      } else if (this.bee) {
+        await this.bee.close()
+      }
       return cb()
     } catch (err) {
       return cb(err)
@@ -37,38 +106,30 @@ class ActionApproverFacility extends BaseFacility {
 
   /**
    * @param {string} subdb
-   * @returns {Hyperbee}
+   * @returns {string}
    */
-  _resolveDb (subdb) {
+  _resolvePartition (subdb) {
     switch (subdb) {
-      case 'voting': return this.dbActVoting
-      case 'ready': return this.dbActReady
-      case 'executing': return this.dbActExec
-      case 'done': return this.dbActDone
+      case 'voting': return PARTITIONS.VOTING
+      case 'ready': return PARTITIONS.READY
+      case 'executing': return PARTITIONS.EXECUTING
+      case 'done': return PARTITIONS.DONE
       default:
         throw new Error('ERR_SUBDB_UNKOWN')
     }
+  }
+
+  /** @deprecated hyperbee-only helper kept for older callers */
+  _resolveDb (subdb) {
+    const partition = this._resolvePartition(subdb)
+    if (!this.store?._dbs) throw new Error('ERR_SUBDB_UNKOWN')
+    return this.store._dbs[partition]
   }
 
   _encode (data) {
     return Buffer.from(JSON.stringify(data), 'utf-8')
   }
 
-  /**
-   * @param {Buffer} data
-   * @returns {{
-   *    id: number,
-   *    action: string,
-   *    payload: any[],
-   *    votesPos: (string|number)[],
-   *    votesNeg: (string|number)[],
-   *    reqVotesPos: number,
-   *    reqVotesNeg: number,
-   *    status: string,
-   *    error?: string,
-   *    result?: any
-   *  }}
-   */
   _decode (data) {
     return JSON.parse(data.toString('utf-8'))
   }
@@ -82,28 +143,6 @@ class ActionApproverFacility extends BaseFacility {
     if (type === 'number' && (voter < 1 || !Number.isInteger(voter))) return false
 
     return true
-  }
-
-  /**
-   * @param {Hyperbee} bee
-   */
-  async initDb (bee) {
-    if (!(bee instanceof Hyperbee)) {
-      throw new Error('ERR_OPTS_BEE_INSTANCE_INVALID')
-    }
-
-    this.bee = bee
-    await this.bee.ready()
-
-    /*
-    Sub will be deprecated in future hyperbee releases. Holepunch recommends using sub-encoder (https://github.com/holepunchto/sub-encoder).
-    Verify backward compatibility and thoroughly test before migrating. This will be handled separately.
-    */
-
-    this.dbActVoting = this.bee.sub('actions:voting')
-    this.dbActReady = this.bee.sub('actions:ready')
-    this.dbActExec = this.bee.sub('actions:executing')
-    this.dbActDone = this.bee.sub('actions:done')
   }
 
   initWrk (wrk) {
@@ -120,6 +159,22 @@ class ActionApproverFacility extends BaseFacility {
 
     this.executing = false
     this.itv = setInterval(this.execActions.bind(this), interval)
+    // Startup recovery, then periodic re-claim of stale EXECUTING leases
+    this.recoverStaleExecuting().catch(() => {})
+    this._recoverItv = setInterval(() => {
+      this.recoverStaleExecuting().catch(() => {})
+    }, Math.max(interval, 1000))
+  }
+
+  /**
+   * Serialize voting-partition mutations (push/vote/cancel/expire/revise)
+   * so concurrent RPCs cannot lose votes via read-modify-write races.
+   * @template T
+   * @param {() => Promise<T>} fn
+   * @returns {Promise<T>}
+   */
+  _runVotingMutation (fn) {
+    return this.queue.pushTask(fn)
   }
 
   /**
@@ -130,9 +185,22 @@ class ActionApproverFacility extends BaseFacility {
    * @param {number} [opts.reqVotes] - Use either reqVotes or reqVotesPos and reqVotesNeg
    * @param {number} [opts.reqVotesPos]
    * @param {number} [opts.reqVotesNeg]
-   * @returns {Promise<string>}
+   * @param {(string|number)[]} [opts.eligibleVoters]
+   * @param {string|number} [opts.target]
+   * @returns {Promise<object>}
    */
-  async pushAction ({ action, payload, voter, reqVotes, reqVotesPos, reqVotesNeg, batchActionUID }) {
+  async pushAction ({
+    action,
+    payload,
+    voter,
+    reqVotes,
+    reqVotesPos,
+    reqVotesNeg,
+    batchActionUID,
+    eligibleVoters,
+    target
+  }) {
+    if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
     if (!action || typeof action !== 'string' || !action.trim()) {
       throw new Error('ERR_ACTION_INVALID')
     }
@@ -159,11 +227,20 @@ class ActionApproverFacility extends BaseFacility {
       throw new Error('ERR_REQ_VOTES_NEG_INVALID')
     }
 
-    const data = await this.queue.pushTask(async () => {
-      const id = Date.now()
-      await sleep(50) // ensure unique timestamp
+    if (eligibleVoters !== undefined && eligibleVoters !== null) {
+      if (!Array.isArray(eligibleVoters)) {
+        throw new Error('ERR_ELIGIBLE_VOTERS_INVALID')
+      }
+    }
 
-      const data = {
+    return this._runVotingMutation(async () => {
+      const id = this.store.createId()
+      if (typeof id === 'number') {
+        await sleep(50) // ensure unique timestamp for hyperbee/hyperdb
+      }
+
+      const status = reqVotesPos > 1 ? ACTION_STATUS.VOTING : ACTION_STATUS.APPROVED
+      const record = {
         id,
         batchActionUID,
         action,
@@ -172,80 +249,217 @@ class ActionApproverFacility extends BaseFacility {
         votesNeg: [],
         reqVotesPos,
         reqVotesNeg,
-        status: reqVotesPos > 1 ? ACTION_STATUS.VOTING : ACTION_STATUS.APPROVED
+        status
       }
-      const key = convIntToBin(id)
+      if (eligibleVoters !== undefined && eligibleVoters !== null) {
+        record.eligibleVoters = eligibleVoters.map((v) => (typeof v === 'number' ? v : String(v)))
+      }
+      if (target !== undefined && target !== null) {
+        record.target = typeof target === 'number' ? target : String(target)
+      }
 
-      const db = reqVotesPos > 1 ? this.dbActVoting : this.dbActReady
-      await db.put(key, this._encode(data))
-      return data
+      const partition = status === ACTION_STATUS.APPROVED ? PARTITIONS.READY : PARTITIONS.VOTING
+      await this.store.put(partition, record)
+      return record
     })
-
-    return data
   }
 
   async getAction (subdb, id) {
-    const db = this._resolveDb(subdb)
-    const key = convIntToBin(id)
-    const raw = await db.get(key)
-    if (!raw) {
+    if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
+    const partition = this._resolvePartition(subdb)
+    const data = await this.store.get(partition, id)
+    if (!data) {
       throw new Error('ERR_ACTION_ID_NOT_FOUND')
     }
-
-    const data = this._decode(raw.value)
-    return { id, key, data }
+    return { id: data.id, key: data.id, data }
   }
 
   /**
    * @param {Object} opts
-   * @param {number} opts.id
+   * @param {number|string} opts.id
    * @param {string|number} opts.voter
    * @param {boolean} opts.approve
    */
   async voteAction ({ id, voter, approve }) {
-    const { key, data } = await this.getAction('voting', id)
+    if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
+    return this._runVotingMutation(() => this._voteAction({ id, voter, approve }))
+  }
+
+  async _voteAction ({ id, voter, approve }) {
+    const { data } = await this.getAction('voting', id)
+
+    if (Array.isArray(data.eligibleVoters) && !includesVoter(data.eligibleVoters, voter)) {
+      throw new Error('ERR_VOTER_NOT_ELIGIBLE')
+    }
+
+    if (!this._validVoter(voter)) {
+      throw new Error('ERR_VOTER_INVALID')
+    }
 
     const votes = approve ? data.votesPos : data.votesNeg
     const reqVotes = approve ? data.reqVotesPos : data.reqVotesNeg
-    if (data.votesPos.includes(voter) || data.votesNeg.includes(voter)) {
+    if (includesVoter(data.votesPos, voter) || includesVoter(data.votesNeg, voter)) {
       throw new Error('ERR_VOTER_EXISTS')
     }
 
     votes.push(voter)
     if (votes.length < reqVotes) {
-      await this.dbActVoting.put(key, this._encode(data))
+      await this.store.conditionalUpdate(PARTITIONS.VOTING, id, ACTION_STATUS.VOTING, data)
       return
     }
     data.status = approve ? ACTION_STATUS.APPROVED : ACTION_STATUS.DENIED
 
-    const db = approve ? this.dbActReady : this.dbActDone
-    await this.dbActVoting.del(key)
-    await db.put(key, this._encode(data))
+    const toPartition = approve ? PARTITIONS.READY : PARTITIONS.DONE
+    const moved = await this.store.transition(PARTITIONS.VOTING, toPartition, data, ACTION_STATUS.VOTING)
+    if (!moved) throw new Error('ERR_ACTION_TRANSITION_FAILED')
   }
 
   /**
    * @param {Object} opts
-   * @param {number} opts.id
+   * @param {number|string} opts.id
    * @param {string|number} opts.voter
    */
   async cancelAction ({ id, voter }) {
-    /*
-    Performing one hyperbee operation at a time due to batch action limitations with multiple subs on the same DB.
-    Switching to new sub-encoder can support batches but need to test for backwards compatibility.
-    */
-    const { key, data } = await this.getAction('voting', id)
-    if (data.votesPos[0] !== voter) {
+    if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
+    return this._runVotingMutation(() => this._cancelAction({ id, voter }))
+  }
+
+  async _cancelAction ({ id, voter }) {
+    const { data } = await this.getAction('voting', id)
+    if (String(data.votesPos[0]) !== String(voter)) {
       throw new Error('ERR_CALLER_NOT_CREATOR')
     }
     data.status = ACTION_STATUS.DENIED
 
-    await this.dbActVoting.del(key)
-    await this.dbActDone.put(key, this._encode(data))
+    const moved = await this.store.transition(
+      PARTITIONS.VOTING,
+      PARTITIONS.DONE,
+      data,
+      ACTION_STATUS.VOTING
+    )
+    if (!moved) throw new Error('ERR_ACTION_TRANSITION_FAILED')
+  }
+
+  /**
+   * Expire a VOTING action with a reason (LATE, NO_ELIGIBLE_VOTERS, PROPOSER_DISABLED, …).
+   * @param {Object} opts
+   * @param {number|string} opts.id
+   * @param {string} opts.reason
+   */
+  async expireAction ({ id, reason }) {
+    if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
+    return this._runVotingMutation(() => this._expireAction({ id, reason }))
+  }
+
+  async _expireAction ({ id, reason }) {
+    if (!reason || typeof reason !== 'string') {
+      throw new Error('ERR_EXPIRE_REASON_INVALID')
+    }
+    const { data } = await this.getAction('voting', id)
+    data.status = ACTION_STATUS.EXPIRED
+    data.error = reason
+
+    const moved = await this.store.transition(
+      PARTITIONS.VOTING,
+      PARTITIONS.DONE,
+      data,
+      ACTION_STATUS.VOTING
+    )
+    if (!moved) throw new Error('ERR_ACTION_TRANSITION_FAILED')
+    return data
+  }
+
+  /**
+   * Remove a voter from open VOTING actions, discard their votes, recompute
+   * thresholds, and reevaluate (or expire).
+   * @param {Object} opts
+   * @param {string|number} opts.userId
+   * @returns {Promise<object[]>} touched actions
+   */
+  async reviseVoting ({ userId }) {
+    if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
+    return this._runVotingMutation(() => this._reviseVoting({ userId }))
+  }
+
+  async _reviseVoting ({ userId }) {
+    if (!this._validVoter(userId)) {
+      throw new Error('ERR_VOTER_INVALID')
+    }
+
+    const touched = []
+    for await (const data of this.store.read(PARTITIONS.VOTING)) {
+      const isProposer = String(data.votesPos?.[0]) === String(userId)
+      const inPool = Array.isArray(data.eligibleVoters) && includesVoter(data.eligibleVoters, userId)
+      if (!isProposer && !inPool) continue
+
+      // Proposer disabled → expire (even when proposer is not in eligibleVoters)
+      // Use unlocked expire to avoid nested TaskQueue deadlock
+      if (isProposer) {
+        const expired = await this._expireAction({ id: data.id, reason: 'PROPOSER_DISABLED' })
+        touched.push(expired)
+        continue
+      }
+
+      data.eligibleVoters = withoutVoter(data.eligibleVoters, userId)
+      data.votesPos = withoutVoter(data.votesPos, userId)
+      data.votesNeg = withoutVoter(data.votesNeg, userId)
+
+      if (data.eligibleVoters.length === 0) {
+        data.status = ACTION_STATUS.EXPIRED
+        data.error = 'NO_ELIGIBLE_VOTERS'
+        const moved = await this.store.transition(
+          PARTITIONS.VOTING,
+          PARTITIONS.DONE,
+          data,
+          ACTION_STATUS.VOTING
+        )
+        if (moved) touched.push(moved)
+        continue
+      }
+
+      const { reqVotesPos, reqVotesNeg } = computeQuorumThresholds(data.eligibleVoters.length)
+      data.reqVotesPos = reqVotesPos
+      data.reqVotesNeg = reqVotesNeg
+
+      if (data.votesPos.length >= data.reqVotesPos) {
+        data.status = ACTION_STATUS.APPROVED
+        const moved = await this.store.transition(
+          PARTITIONS.VOTING,
+          PARTITIONS.READY,
+          data,
+          ACTION_STATUS.VOTING
+        )
+        if (moved) touched.push(moved)
+        continue
+      }
+
+      if (data.votesNeg.length >= data.reqVotesNeg) {
+        data.status = ACTION_STATUS.DENIED
+        const moved = await this.store.transition(
+          PARTITIONS.VOTING,
+          PARTITIONS.DONE,
+          data,
+          ACTION_STATUS.VOTING
+        )
+        if (moved) touched.push(moved)
+        continue
+      }
+
+      const updated = await this.store.conditionalUpdate(
+        PARTITIONS.VOTING,
+        data.id,
+        ACTION_STATUS.VOTING,
+        data
+      )
+      if (updated) touched.push(updated)
+    }
+
+    return touched
   }
 
   /**
    * @param {Object} opts
-   * @param {Array<number>} opts.ids
+   * @param {Array<number|string>} opts.ids
    * @param {string|number} opts.voter
    */
   async cancelActionsBatch ({ ids, voter }) {
@@ -271,9 +485,8 @@ class ActionApproverFacility extends BaseFacility {
     this.executing = true
 
     try {
-      const stream = this.dbActReady.createReadStream()
-      for await (const entry of stream) {
-        await this._execAction(entry)
+      for await (const data of this.store.read(PARTITIONS.READY)) {
+        await this._execAction(data)
       }
     } finally {
       this.executing = false
@@ -283,18 +496,59 @@ class ActionApproverFacility extends BaseFacility {
   }
 
   /**
-   * @param {Object} entry
-   * @param {number} entry.seq
-   * @param {Buffer} entry.key
-   * @param {Buffer} entry.value
+   * Re-claim EXECUTING actions older than executingTimeout and re-run them.
    */
-  async _execAction (entry) {
-    const key = entry.key
-    const data = this._decode(entry.value)
+  async recoverStaleExecuting () {
+    if (!this.store) return []
+    const cutoff = Date.now() - this.executingTimeout
+    const recovered = []
 
-    data.status = ACTION_STATUS.EXECUTING
-    await this.dbActExec.put(key, this._encode(data))
-    await this.dbActReady.del(key)
+    for await (const data of this.store.read(PARTITIONS.EXECUTING)) {
+      const claimedAt = Number(data.claimedAt) || 0
+      if (claimedAt && claimedAt > cutoff) continue
+
+      const claim = {
+        ...data,
+        claimedBy: this.claimId,
+        claimedAt: Date.now(),
+        status: ACTION_STATUS.EXECUTING
+      }
+      const updated = await this.store.conditionalUpdate(
+        PARTITIONS.EXECUTING,
+        data.id,
+        ACTION_STATUS.EXECUTING,
+        claim
+      )
+      if (!updated) continue
+      await this._runHandler(updated)
+      recovered.push(updated.id)
+    }
+    return recovered
+  }
+
+  /**
+   * @param {object} data - Action record in READY / APPROVED
+   */
+  async _execAction (data) {
+    const claim = {
+      ...data,
+      status: ACTION_STATUS.EXECUTING,
+      claimedBy: this.claimId,
+      claimedAt: Date.now()
+    }
+
+    const claimed = await this.store.transition(
+      PARTITIONS.READY,
+      PARTITIONS.EXECUTING,
+      claim,
+      ACTION_STATUS.APPROVED
+    )
+    if (!claimed) return
+
+    await this._runHandler(claimed)
+  }
+
+  async _runHandler (data) {
     const [params, ...otherPayload] = data.payload
     const paramsWithActionId = [
       ...params,
@@ -310,35 +564,40 @@ class ActionApproverFacility extends BaseFacility {
       data.status = ACTION_STATUS.FAILED
       data.error = sformat(err)
     } finally {
-      await this.dbActDone.put(key, this._encode(data))
-      await this.dbActExec.del(key)
+      delete data.claimedBy
+      delete data.claimedAt
+      const moved = await this.store.transition(
+        PARTITIONS.EXECUTING,
+        PARTITIONS.DONE,
+        data,
+        ACTION_STATUS.EXECUTING
+      )
+      if (!moved) {
+        // Another worker may have completed it; best-effort write
+        await this.store.put(PARTITIONS.DONE, data).catch(() => {})
+        await this.store.del(PARTITIONS.EXECUTING, data.id).catch(() => {})
+      }
     }
   }
 
   /**
    * @param {string} subdb
    * @param {Object} [range]
-   * @param {number} [range.gt]
-   * @param {number} [range.gte]
-   * @param {number} [range.lt]
-   * @param {number} [range.lte]
+   * @param {number|string} [range.gt]
+   * @param {number|string} [range.gte]
+   * @param {number|string} [range.lt]
+   * @param {number|string} [range.lte]
    * @param {Object} [opts]
    */
   async * query (subdb, range = undefined, opts = undefined) {
-    if (range?.gt) range.gt = convIntToBin(range.gt)
-    if (range?.gte) range.gte = convIntToBin(range.gte)
-    if (range?.lt) range.lt = convIntToBin(range.lt)
-    if (range?.lte) range.lte = convIntToBin(range.lte)
-
-    const db = this._resolveDb(subdb)
-
-    const stream = db.createReadStream(range, opts)
-    for await (const entry of stream) {
-      const data = this._decode(entry.value)
-      yield data
-    }
+    if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
+    const partition = this._resolvePartition(subdb)
+    yield * this.store.read(partition, range, opts)
   }
 }
 
 module.exports = ActionApproverFacility
 module.exports.ACTION_STATUS = ACTION_STATUS
+module.exports.PARTITIONS = PARTITIONS
+module.exports.ENGINES = ENGINES
+module.exports.computeQuorumThresholds = computeQuorumThresholds
