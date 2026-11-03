@@ -76,27 +76,29 @@ class HyperdbStore {
     if (typeof this.db.flush === 'function') await this.db.flush()
   }
 
-  async transition (fromPartition, toPartition, record, expectedStatus) {
+  async transition (fromPartition, toPartition, record, expectedStatus, expected = {}) {
     const existing = await this.get(fromPartition, record.id)
     if (!existing) return null
     if (expectedStatus && existing.status !== expectedStatus) return null
+    if (Object.entries(expected).some(([key, value]) => (existing[key] ?? null) !== value)) return null
     // put-then-del: crash window may leave a duplicate, not a lost record
     await this.put(toPartition, record)
     await this.del(fromPartition, record.id)
     return record
   }
 
-  async conditionalUpdate (partition, id, expectedStatus, record) {
+  async conditionalUpdate (partition, id, expectedStatus, record, expected = {}) {
     const existing = await this.get(partition, id)
     if (!existing) return null
     if (expectedStatus && existing.status !== expectedStatus) return null
+    if (Object.entries(expected).some(([key, value]) => (existing[key] ?? null) !== value)) return null
     await this.put(partition, record)
     return record
   }
 
-  async * read (partition, range = undefined, _opts = undefined) {
+  async * read (partition, range = undefined, opts = {}) {
     const collection = this._collection(partition)
-    const query = {}
+    const query = { reverse: Boolean(opts?.reverse) }
     if (range?.gt !== undefined) query.gt = { id: Number(range.gt) }
     if (range?.gte !== undefined) query.gte = { id: Number(range.gte) }
     if (range?.lt !== undefined) query.lt = { id: Number(range.lt) }

@@ -66,9 +66,6 @@ class MongodbStore {
   async put (partition, record) {
     const statuses = PARTITION_STATUSES[partition]
     if (!statuses) throw new Error('ERR_SUBDB_UNKOWN')
-    if (!statuses.includes(record.status)) {
-      // allow writing with matching status already set by caller
-    }
     const doc = this._toDoc(record)
     await this.col.replaceOne({ _id: doc._id }, doc, { upsert: true })
     return record
@@ -95,32 +92,38 @@ class MongodbStore {
   /**
    * Conditional status transition via findOneAndUpdate on {_id, status}.
    */
-  async transition (fromPartition, toPartition, record, expectedStatus) {
+  async transition (fromPartition, toPartition, record, expectedStatus, expected = {}) {
     const fromStatuses = PARTITION_STATUSES[fromPartition]
     const expect = expectedStatus || (fromStatuses && fromStatuses[0])
     if (!expect) throw new Error('ERR_SUBDB_UNKOWN')
 
     const { id, ...rest } = record
+    const update = { $set: { ...rest, status: record.status } }
+    if (expect === ACTION_STATUS.EXECUTING && record.status !== ACTION_STATUS.EXECUTING) {
+      delete update.$set.claimedBy
+      delete update.$set.claimedAt
+      update.$unset = { claimedBy: '', claimedAt: '' }
+    }
     const result = await this.col.findOneAndUpdate(
-      { _id: String(id), status: expect },
-      { $set: { ...rest, status: record.status } },
+      { _id: String(id), status: expect, ...expected },
+      update,
       { returnDocument: 'after' }
     )
     const updated = unwrapFindResult(result)
     return this._fromDoc(updated)
   }
 
-  async conditionalUpdate (partition, id, expectedStatus, record) {
+  async conditionalUpdate (partition, id, expectedStatus, record, expected = {}) {
     const { id: _ignore, ...rest } = record
     const result = await this.col.findOneAndUpdate(
-      { _id: String(id), status: expectedStatus },
+      { _id: String(id), status: expectedStatus, ...expected },
       { $set: { ...rest, status: record.status } },
       { returnDocument: 'after' }
     )
     return this._fromDoc(unwrapFindResult(result))
   }
 
-  async * read (partition, range = undefined, _opts = undefined) {
+  async * read (partition, range = undefined, opts = {}) {
     const statuses = PARTITION_STATUSES[partition]
     if (!statuses) throw new Error('ERR_SUBDB_UNKOWN')
 
@@ -134,7 +137,7 @@ class MongodbStore {
       if (range.lte !== undefined) filter._id.$lte = String(range.lte)
     }
 
-    const cursor = this.col.find(filter).sort({ _id: 1 })
+    const cursor = this.col.find(filter).sort({ _id: opts?.reverse ? -1 : 1 })
     for await (const doc of cursor) {
       yield this._fromDoc(doc)
     }

@@ -247,7 +247,11 @@ test('mongodb store uses ObjectId hex ids and conditional updates', async (t) =>
       const doc = docs.get(String(filter._id))
       if (!doc) return null
       if (filter.status && doc.status !== filter.status) return null
+      for (const key of ['claimedBy', 'claimedAt']) {
+        if (key in filter && (doc[key] ?? null) !== filter[key]) return null
+      }
       const next = { ...doc, ...update.$set }
+      for (const key of Object.keys(update.$unset || {})) delete next[key]
       docs.set(String(filter._id), next)
       return next
     },
@@ -291,6 +295,15 @@ test('mongodb store uses ObjectId hex ids and conditional updates', async (t) =>
   const done = await fac.getAction('done', data.id)
   t.is(done.data.status, ACTION_STATUS.COMPLETED)
   t.is(done.data.result, 2)
+  t.absent(done.data.claimedBy)
+  t.absent(done.data.claimedAt)
+  const old = { ...done.data, status: ACTION_STATUS.EXECUTING, claimedBy: 'old', claimedAt: 1 }
+  await fac.store.put('executing', old)
+  const current = { ...old, claimedBy: 'new', claimedAt: 2 }
+  t.ok(await fac.store.conditionalUpdate('executing', data.id, ACTION_STATUS.EXECUTING, current, { claimedBy: 'old', claimedAt: 1 }))
+  t.is(await fac.store.conditionalUpdate('executing', data.id, ACTION_STATUS.EXECUTING, old, { claimedBy: 'old', claimedAt: 1 }), null)
+  t.is(await fac.store.transition('executing', 'done', done.data, ACTION_STATUS.EXECUTING, { claimedBy: 'old', claimedAt: 1 }), null)
+  t.is((await fac.getAction('executing', data.id)).data.claimedBy, 'new')
 })
 
 test('concurrent votes serialize and both land', async (t) => {
@@ -355,4 +368,49 @@ test('startInterval recovers stale EXECUTING immediately', async (t) => {
   t.is(runs, 1)
   const done = await fac.getAction('done', id)
   t.is(done.data.status, ACTION_STATUS.COMPLETED)
+})
+
+test('reviseVoting scopes role loss to affected action kinds', async t => {
+  const fac = await makeFac({ posts () {}, config () {} })
+  t.teardown(() => new Promise((resolve, reject) => fac._stop(err => err ? reject(err) : resolve())))
+  const args = { payload: [[1]], voter: 'alice', reqVotesPos: 3, reqVotesNeg: 1, eligibleVoters: ['bob', 'carol'] }
+  const posts = await fac.pushAction({ ...args, action: 'posts' })
+  const config = await fac.pushAction({ ...args, action: 'config' })
+  await fac.reviseVoting({ userId: 'bob', actions: ['posts'] })
+  t.alike((await fac.getAction('voting', posts.id)).data.eligibleVoters, ['carol'])
+  t.alike((await fac.getAction('voting', config.id)).data.eligibleVoters, ['bob', 'carol'])
+})
+
+test('a superseded execution cannot overwrite the current claim', async t => {
+  const fac = await makeFac()
+  t.teardown(() => new Promise((resolve, reject) => fac._stop(err => err ? reject(err) : resolve())))
+  const action = await fac.pushAction({ action: 'ping', payload: [[1]], voter: 'alice', reqVotes: 1 })
+  const old = { ...action, status: ACTION_STATUS.EXECUTING, claimedBy: 'old', claimedAt: 1 }
+  await fac.store.transition('ready', 'executing', old, ACTION_STATUS.APPROVED)
+  const newer = { ...old, claimedBy: 'new', claimedAt: 2 }
+  await fac.store.conditionalUpdate('executing', action.id, ACTION_STATUS.EXECUTING, newer, { claimedBy: 'old', claimedAt: 1 })
+  t.is(await fac.store.conditionalUpdate('executing', action.id, ACTION_STATUS.EXECUTING, old, { claimedBy: 'old', claimedAt: 1 }), null)
+  await fac._runHandler(old)
+  t.is((await fac.getAction('executing', action.id)).data.claimedBy, 'new')
+  await fac._runHandler(newer)
+  t.is((await fac.getAction('done', action.id)).data.status, ACTION_STATUS.COMPLETED)
+})
+
+test('recovery does not replay a handler still running in the same process', async t => {
+  let release
+  let entered
+  const started = new Promise(resolve => { entered = resolve })
+  const wait = new Promise(resolve => { release = resolve })
+  let runs = 0
+  const fac = await makeFac({ async ping () { runs++; entered(); await wait } })
+  t.teardown(() => new Promise((resolve, reject) => fac._stop(err => err ? reject(err) : resolve())))
+  const action = await fac.pushAction({ action: 'ping', payload: [[1]], voter: 'alice', reqVotes: 1 })
+  const execution = fac.execActions()
+  await started
+  const active = (await fac.getAction('executing', action.id)).data
+  await fac.store.conditionalUpdate('executing', action.id, ACTION_STATUS.EXECUTING, { ...active, claimedAt: 1 })
+  t.alike(await fac.recoverStaleExecuting(), [])
+  t.is(runs, 1)
+  release()
+  await execution
 })

@@ -34,6 +34,7 @@ class ActionApproverFacility extends BaseFacility {
     this.executingTimeout = DEFAULT_EXECUTING_TIMEOUT_MS
     this.claimId = null
     this._recoverItv = null
+    this._activeExecutions = new Set()
   }
 
   /**
@@ -376,18 +377,19 @@ class ActionApproverFacility extends BaseFacility {
    * @param {string|number} opts.userId
    * @returns {Promise<object[]>} touched actions
    */
-  async reviseVoting ({ userId }) {
+  async reviseVoting ({ userId, actions, reason }) {
     if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
-    return this._runVotingMutation(() => this._reviseVoting({ userId }))
+    return this._runVotingMutation(() => this._reviseVoting({ userId, actions, reason }))
   }
 
-  async _reviseVoting ({ userId }) {
+  async _reviseVoting ({ userId, actions, reason }) {
     if (!this._validVoter(userId)) {
       throw new Error('ERR_VOTER_INVALID')
     }
 
     const touched = []
     for await (const data of this.store.read(PARTITIONS.VOTING)) {
+      if (Array.isArray(actions) && !actions.includes(data.action)) continue
       const isProposer = String(data.votesPos?.[0]) === String(userId)
       const inPool = Array.isArray(data.eligibleVoters) && includesVoter(data.eligibleVoters, userId)
       if (!isProposer && !inPool) continue
@@ -395,7 +397,7 @@ class ActionApproverFacility extends BaseFacility {
       // Proposer disabled → expire (even when proposer is not in eligibleVoters)
       // Use unlocked expire to avoid nested TaskQueue deadlock
       if (isProposer) {
-        const expired = await this._expireAction({ id: data.id, reason: 'PROPOSER_DISABLED' })
+        const expired = await this._expireAction({ id: data.id, reason: reason || 'PROPOSER_DISABLED' })
         touched.push(expired)
         continue
       }
@@ -499,11 +501,21 @@ class ActionApproverFacility extends BaseFacility {
    * Re-claim EXECUTING actions older than executingTimeout and re-run them.
    */
   async recoverStaleExecuting () {
-    if (!this.store) return []
+    if (!this.store || this._recovering) return []
+    this._recovering = true
+    try {
+      return await this._recoverStaleExecuting()
+    } finally {
+      this._recovering = false
+    }
+  }
+
+  async _recoverStaleExecuting () {
     const cutoff = Date.now() - this.executingTimeout
     const recovered = []
 
     for await (const data of this.store.read(PARTITIONS.EXECUTING)) {
+      if (this._activeExecutions.has(data.id)) continue
       const claimedAt = Number(data.claimedAt) || 0
       if (claimedAt && claimedAt > cutoff) continue
 
@@ -517,7 +529,8 @@ class ActionApproverFacility extends BaseFacility {
         PARTITIONS.EXECUTING,
         data.id,
         ACTION_STATUS.EXECUTING,
-        claim
+        claim,
+        { claimedBy: data.claimedBy ?? null, claimedAt: data.claimedAt ?? null }
       )
       if (!updated) continue
       await this._runHandler(updated)
@@ -549,6 +562,8 @@ class ActionApproverFacility extends BaseFacility {
   }
 
   async _runHandler (data) {
+    this._activeExecutions.add(data.id)
+    const claim = { claimedBy: data.claimedBy ?? null, claimedAt: data.claimedAt ?? null }
     const [params, ...otherPayload] = data.payload
     const paramsWithActionId = [
       ...params,
@@ -566,16 +581,16 @@ class ActionApproverFacility extends BaseFacility {
     } finally {
       delete data.claimedBy
       delete data.claimedAt
-      const moved = await this.store.transition(
-        PARTITIONS.EXECUTING,
-        PARTITIONS.DONE,
-        data,
-        ACTION_STATUS.EXECUTING
-      )
-      if (!moved) {
-        // Another worker may have completed it; best-effort write
-        await this.store.put(PARTITIONS.DONE, data).catch(() => {})
-        await this.store.del(PARTITIONS.EXECUTING, data.id).catch(() => {})
+      try {
+        await this.store.transition(
+          PARTITIONS.EXECUTING,
+          PARTITIONS.DONE,
+          data,
+          ACTION_STATUS.EXECUTING,
+          claim
+        )
+      } finally {
+        this._activeExecutions.delete(data.id)
       }
     }
   }

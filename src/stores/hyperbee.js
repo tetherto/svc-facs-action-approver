@@ -70,10 +70,11 @@ class HyperbeeStore {
   /**
    * Move record between partitions (del + put). Not transactional across subs.
    */
-  async transition (fromPartition, toPartition, record, expectedStatus) {
+  async transition (fromPartition, toPartition, record, expectedStatus, expected = {}) {
     const existing = await this.get(fromPartition, record.id)
     if (!existing) return null
     if (expectedStatus && existing.status !== expectedStatus) return null
+    if (Object.entries(expected).some(([key, value]) => (existing[key] ?? null) !== value)) return null
     await this.put(toPartition, record)
     await this.del(fromPartition, record.id)
     return record
@@ -82,10 +83,11 @@ class HyperbeeStore {
   /**
    * Conditional in-place update within a partition.
    */
-  async conditionalUpdate (partition, id, expectedStatus, record) {
+  async conditionalUpdate (partition, id, expectedStatus, record, expected = {}) {
     const existing = await this.get(partition, id)
     if (!existing) return null
     if (expectedStatus && existing.status !== expectedStatus) return null
+    if (Object.entries(expected).some(([key, value]) => (existing[key] ?? null) !== value)) return null
     await this.put(partition, record)
     return record
   }
@@ -97,7 +99,7 @@ class HyperbeeStore {
     if (mapped?.lt !== undefined) mapped.lt = convIntToBin(Number(mapped.lt))
     if (mapped?.lte !== undefined) mapped.lte = convIntToBin(Number(mapped.lte))
 
-    const stream = this._db(partition).createReadStream(mapped, opts)
+    const stream = this._db(partition).createReadStream({ ...mapped, ...opts })
     for await (const entry of stream) {
       yield this._decode(entry.value)
     }
