@@ -414,3 +414,24 @@ test('recovery does not replay a handler still running in the same process', asy
   release()
   await execution
 })
+
+test('recovery serializes different actions with normal execution', async t => {
+  let release
+  let entered
+  const started = new Promise(resolve => { entered = resolve })
+  const gate = new Promise(resolve => { release = resolve })
+  const runs = []
+  const fac = await makeFac({ async ping ([n]) { runs.push(n); if (n === 1) { entered(); await gate } } })
+  t.teardown(() => new Promise((resolve, reject) => fac._stop(err => err ? reject(err) : resolve())))
+  const old = await fac.pushAction({ action: 'ping', payload: [[1]], voter: 'alice', reqVotes: 1 })
+  await fac.store.transition('ready', 'executing', { ...old, status: ACTION_STATUS.EXECUTING, claimedBy: 'dead', claimedAt: 1 }, ACTION_STATUS.APPROVED)
+  await fac.pushAction({ action: 'ping', payload: [[2]], voter: 'alice', reqVotes: 1 })
+  const recovering = fac.recoverStaleExecuting()
+  await started
+  t.is(await fac.execActions(), false, 'ready execution cannot overlap recovery')
+  t.alike(runs, [1])
+  release()
+  await recovering
+  await fac.execActions()
+  t.alike(runs, [1, 2])
+})

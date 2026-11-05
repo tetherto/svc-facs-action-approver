@@ -501,12 +501,15 @@ class ActionApproverFacility extends BaseFacility {
    * Re-claim EXECUTING actions older than executingTimeout and re-run them.
    */
   async recoverStaleExecuting () {
-    if (!this.store || this._recovering) return []
+    // Recovery and normal execution share one executor, including different actions.
+    if (!this.store || this._recovering || this.executing) return []
     this._recovering = true
+    this.executing = true
     try {
       return await this._recoverStaleExecuting()
     } finally {
       this._recovering = false
+      this.executing = false
     }
   }
 
