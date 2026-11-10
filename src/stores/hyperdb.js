@@ -82,9 +82,13 @@ class HyperdbStore {
     if (!existing) return null
     if (expectedStatus && existing.status !== expectedStatus) return null
     if (Object.entries(expected).some(([key, value]) => (existing[key] ?? null) !== value)) return null
-    // put-then-del: crash window may leave a duplicate, not a lost record
-    await this.put(toPartition, record)
-    await this.del(fromPartition, record.id)
+    const doc = this._normalize(record)
+    const toCollection = this._collection(toPartition)
+    if (await this.db.get(toCollection, { id: doc.id })) await this.db.delete(toCollection, { id: doc.id })
+    await this.db.insert(toCollection, doc)
+    await this.db.delete(this._collection(fromPartition), { id: doc.id })
+    // insert and delete land in the same flush
+    if (typeof this.db.flush === 'function') await this.db.flush()
     return record
   }
 
