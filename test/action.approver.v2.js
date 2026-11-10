@@ -268,7 +268,7 @@ test('mongodb store uses ObjectId hex ids and conditional updates', async (t) =>
     }
   }
 
-  const mongo = { db: { collection: () => col } }
+  const mongo = { db: { collection: () => col }, getDriver: () => mongodb }
   const wrk = { ping: ([n]) => n + 1 }
   const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
   await fac.initStore({ engine: 'mongodb', mongo, claimId: 'mongo-test' })
@@ -499,6 +499,22 @@ test('a numeric target is stored as a string on every engine', async t => {
   t.is(done.data.result, 2)
   t.is(done.data.target, '42')
   await t.exception(fac.getAction('ready', id), /ERR_ACTION_ID_NOT_FOUND/)
+})
+
+test('mongodb store requires the caller mongo facility', async t => {
+  const MongodbStore = require('../src/stores/mongodb')
+  t.exception(() => new MongodbStore({ db: { collection: () => ({}) } }), /ERR_OPTS_MONGO_INVALID/)
+})
+
+test('mongodb ids created in the same second keep creation order', async t => {
+  const MongodbStore = require('../src/stores/mongodb')
+  const store = new MongodbStore({ db: { collection: () => ({}) }, getDriver: () => mongodb })
+
+  const ids = Array.from({ length: 1000 }, () => store.createId())
+
+  t.alike([...ids].sort(), ids)
+  t.is(new Set(ids).size, 1000)
+  t.is(ids[0].length, 24)
 })
 
 const MONGO_URI = process.env.APPROVER_TEST_MONGO_URI

@@ -21,7 +21,7 @@ await fac.initStore({ engine: 'hyperbee', bee })
 // HyperDB — pass an open HyperDB built with package schema (`npm run build:schema`)
 await fac.initStore({ engine: 'hyperdb', hyperdb })
 
-// MongoDB — pass caller worker's dbMongo_m0 (or { db })
+// MongoDB — pass the caller worker's started dbMongo_m0; ids come from its driver
 await fac.initStore({
   engine: 'mongodb',
   mongo: this.dbMongo_m0,

@@ -1,6 +1,5 @@
 'use strict'
 
-const { ObjectId } = require('mongodb')
 const { PARTITIONS, ACTION_STATUS } = require('../constants')
 
 const COLLECTION = 'action_approver'
@@ -18,13 +17,12 @@ const PARTITION_STATUSES = Object.freeze({
 })
 
 /**
- * Resolve a Mongo Db handle from a bfx-facs-db-mongo instance or plain { db }.
+ * Resolve the Mongo Db handle from the caller's started bfx-facs-db-mongo.
  * @param {object} mongo
  */
 function resolveDb (mongo) {
-  if (!mongo) throw new Error('ERR_OPTS_MONGO_INVALID')
+  if (typeof mongo?.getDriver !== 'function') throw new Error('ERR_OPTS_MONGO_INVALID')
   if (mongo.db && typeof mongo.db.collection === 'function') return mongo.db
-  if (typeof mongo.collection === 'function') return mongo
   if (mongo.cli && typeof mongo.cli.db === 'function') {
     const name = mongo.conf?.database
     return name ? mongo.cli.db(name) : mongo.cli.db()
@@ -34,12 +32,13 @@ function resolveDb (mongo) {
 
 class MongodbStore {
   /**
-   * @param {object} mongo - Caller worker's dbMongo_m0 (or { db })
+   * @param {object} mongo - Caller worker's started dbMongo_m0
    */
   constructor (mongo) {
     this.mongo = mongo
     this.engine = 'mongodb'
     this.db = resolveDb(mongo)
+    this.ObjectId = mongo.getDriver().ObjectId
     this.col = this.db.collection(COLLECTION)
   }
 
@@ -49,7 +48,7 @@ class MongodbStore {
   }
 
   createId () {
-    return new ObjectId().toHexString()
+    return new this.ObjectId().toHexString()
   }
 
   _toDoc (record) {
