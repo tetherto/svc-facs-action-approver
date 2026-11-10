@@ -280,7 +280,7 @@ class ActionApproverFacility extends BaseFacility {
         record.eligibleVoters = eligibleVoters.map((v) => (typeof v === 'number' ? v : String(v)))
       }
       if (target !== undefined && target !== null) {
-        record.target = typeof target === 'number' ? target : String(target)
+        record.target = String(target)
       }
 
       const partition = status === ACTION_STATUS.APPROVED ? PARTITIONS.READY : PARTITIONS.VOTING

@@ -480,6 +480,27 @@ test('recovery drops a stale executing copy of a finished action', async t => {
   await t.exception(fac.getAction('executing', id), /ERR_ACTION_ID_NOT_FOUND/)
 })
 
+test('a numeric target is stored as a string on every engine', async t => {
+  const HyperDB = require('hyperdb')
+  const definition = require('../src/schema/spec/hyperdb')
+  const db = HyperDB.bee(new Hypercore(RAM), definition, { autoUpdate: true })
+  await db.ready()
+  const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+  await fac.initStore({ engine: 'hyperdb', hyperdb: db, claimId: 'hyperdb-test' })
+  fac.initWrk({ ping: ([n]) => n + 1 })
+  t.teardown(() => stopFac(fac))
+
+  const { id } = await fac.pushAction({ action: 'ping', payload: [[1]], voter: 'alice', reqVotes: 2, eligibleVoters: ['bob'], target: 42 })
+  await fac.voteAction({ id, voter: 'bob', approve: true })
+  await fac.execActions()
+
+  const done = await fac.getAction('done', id)
+  t.is(done.data.status, ACTION_STATUS.COMPLETED)
+  t.is(done.data.result, 2)
+  t.is(done.data.target, '42')
+  await t.exception(fac.getAction('ready', id), /ERR_ACTION_ID_NOT_FOUND/)
+})
+
 const MONGO_URI = process.env.APPROVER_TEST_MONGO_URI
 
 async function mongoFacs (t, wrk = { ping: ([n]) => n + 1 }) {
