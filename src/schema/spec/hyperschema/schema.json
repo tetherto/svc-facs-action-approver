@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "schema": [
     {
       "name": "actions-voting",
@@ -96,6 +96,12 @@
           "required": false,
           "type": "string",
           "version": 1
+        },
+        {
+          "name": "rev",
+          "required": false,
+          "type": "uint",
+          "version": 2
         }
       ]
     },
@@ -194,6 +200,12 @@
           "required": false,
           "type": "string",
           "version": 1
+        },
+        {
+          "name": "rev",
+          "required": false,
+          "type": "uint",
+          "version": 2
         }
       ]
     },
@@ -292,6 +304,12 @@
           "required": false,
           "type": "string",
           "version": 1
+        },
+        {
+          "name": "rev",
+          "required": false,
+          "type": "uint",
+          "version": 2
         }
       ]
     },
@@ -390,6 +408,12 @@
           "required": false,
           "type": "string",
           "version": 1
+        },
+        {
+          "name": "rev",
+          "required": false,
+          "type": "uint",
+          "version": 2
         }
       ]
     }

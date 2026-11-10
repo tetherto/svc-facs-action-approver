@@ -3,7 +3,8 @@
 const Hyperbee = require('hyperbee')
 const Hypercore = require('hypercore')
 const RAM = require('random-access-memory')
-const { ObjectId } = require('mongodb')
+const mongodb = require('mongodb')
+const { ObjectId } = mongodb
 const { test } = require('brittle')
 
 const ActionApproverFacility = require('../index')
@@ -434,4 +435,80 @@ test('recovery serializes different actions with normal execution', async t => {
   await recovering
   await fac.execActions()
   t.alike(runs, [1, 2])
+})
+
+async function stopFac (fac) {
+  await new Promise((resolve, reject) => fac._stop(err => err ? reject(err) : resolve()))
+}
+
+const MONGO_URI = process.env.APPROVER_TEST_MONGO_URI
+
+async function mongoFacs (t, wrk = { ping: ([n]) => n + 1 }) {
+  const { MongoClient } = require('mongodb')
+  const client = await MongoClient.connect(MONGO_URI)
+  const db = client.db(`approver_race_${Date.now()}_${Math.random().toString(16).slice(2)}`)
+  const facs = []
+  for (const claimId of ['a', 'b']) {
+    const fac = new ActionApproverFacility({}, { ns: 'm0' }, { env: 'test' })
+    await fac.initStore({ engine: 'mongodb', mongo: { db, getDriver: () => mongodb }, claimId })
+    fac.initWrk(wrk)
+    facs.push(fac)
+  }
+  t.teardown(async () => {
+    for (const fac of facs) await stopFac(fac)
+    await db.dropDatabase()
+    await client.close()
+  })
+  return facs
+}
+
+test('two mongo instances voting at once both land', { skip: !MONGO_URI }, async t => {
+  const [a, b] = await mongoFacs(t)
+
+  for (let i = 0; i < 20; i++) {
+    const { id } = await a.pushAction({ action: 'ping', payload: [[1]], voter: 'alice', reqVotesPos: 4, reqVotesNeg: 3, eligibleVoters: ['bob', 'carol', 'dave'] })
+
+    await Promise.all([
+      a.voteAction({ id, voter: 'bob', approve: true }),
+      b.voteAction({ id, voter: 'carol', approve: true })
+    ])
+
+    const { data } = await a.getAction('voting', id)
+    t.alike([...data.votesPos].sort(), ['alice', 'bob', 'carol'], `round ${i}`)
+  }
+})
+
+test('two mongo instances reaching quorum together move the action once', { skip: !MONGO_URI }, async t => {
+  const [a, b] = await mongoFacs(t)
+
+  for (let i = 0; i < 20; i++) {
+    const { id } = await a.pushAction({ action: 'ping', payload: [[1]], voter: 'alice', reqVotesPos: 3, reqVotesNeg: 3, eligibleVoters: ['bob', 'carol', 'dave'] })
+
+    const results = await Promise.allSettled([
+      a.voteAction({ id, voter: 'bob', approve: true }),
+      b.voteAction({ id, voter: 'carol', approve: true })
+    ])
+
+    const { data } = await a.getAction('ready', id)
+    t.is(results.filter(r => r.status === 'fulfilled').length, 2, `round ${i}`)
+    t.is(data.status, ACTION_STATUS.APPROVED)
+    t.alike([...data.votesPos].sort(), ['alice', 'bob', 'carol'])
+  }
+})
+
+test('one voter cannot vote both ways across two mongo instances', { skip: !MONGO_URI }, async t => {
+  const [a, b] = await mongoFacs(t)
+
+  for (let i = 0; i < 20; i++) {
+    const { id } = await a.pushAction({ action: 'ping', payload: [[1]], voter: 'alice', reqVotesPos: 4, reqVotesNeg: 3, eligibleVoters: ['bob', 'carol', 'dave'] })
+
+    const results = await Promise.allSettled([
+      a.voteAction({ id, voter: 'bob', approve: true }),
+      b.voteAction({ id, voter: 'bob', approve: false })
+    ])
+
+    const rejected = results.filter(r => r.status === 'rejected')
+    t.is(rejected.length, 1, `round ${i}`)
+    t.is(rejected[0].reason.message, 'ERR_VOTER_EXISTS')
+  }
 })

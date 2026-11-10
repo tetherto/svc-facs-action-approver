@@ -47,7 +47,8 @@ class HyperdbStore {
       result: record.result === undefined ? null : record.result,
       claimedBy: record.claimedBy ?? null,
       claimedAt: record.claimedAt ?? null,
-      batchActionUID: record.batchActionUID ?? null
+      batchActionUID: record.batchActionUID ?? null,
+      rev: record.rev ?? null
     }
   }
 

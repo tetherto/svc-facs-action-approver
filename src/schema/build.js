@@ -26,7 +26,8 @@ const ACTION_FIELDS = [
   { name: 'result', type: 'json', required: false },
   { name: 'claimedBy', type: 'string', required: false },
   { name: 'claimedAt', type: 'uint', required: false },
-  { name: 'batchActionUID', type: 'string', required: false }
+  { name: 'batchActionUID', type: 'string', required: false },
+  { name: 'rev', type: 'uint', required: false }
 ]
 
 const COLLECTIONS = [

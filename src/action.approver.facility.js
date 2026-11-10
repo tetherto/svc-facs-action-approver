@@ -21,6 +21,13 @@ const {
 } = require('./utils')
 const { createStore } = require('./stores')
 
+const VOTING_WRITE_ATTEMPTS = 3
+
+// rev is the store's write guard, not part of the action record
+function withoutRev ({ rev, ...data }) {
+  return data
+}
+
 class ActionApproverFacility extends BaseFacility {
   constructor (caller, opts, ctx) {
     super(caller, opts, ctx)
@@ -168,14 +175,30 @@ class ActionApproverFacility extends BaseFacility {
   }
 
   /**
-   * Serialize voting-partition mutations (push/vote/cancel/expire/revise)
-   * so concurrent RPCs cannot lose votes via read-modify-write races.
+   * Serialize voting mutations in this process and retry them when another instance wrote first.
    * @template T
    * @param {() => Promise<T>} fn
    * @returns {Promise<T>}
    */
-  _runVotingMutation (fn) {
-    return this.queue.pushTask(fn)
+  async _runVotingMutation (fn) {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.queue.pushTask(fn)
+      } catch (err) {
+        if (err.message !== 'ERR_ACTION_CONCURRENT_UPDATE' || attempt >= VOTING_WRITE_ATTEMPTS) throw err
+      }
+    }
+  }
+
+  /**
+   * Bumps the record revision and returns the store filter for the one it was read at.
+   * @param {object} data
+   * @returns {{ rev: number|null }}
+   */
+  _nextRev (data) {
+    const rev = data.rev ?? null
+    data.rev = (rev || 0) + 1
+    return { rev }
   }
 
   /**
@@ -266,13 +289,15 @@ class ActionApproverFacility extends BaseFacility {
   }
 
   async getAction (subdb, id) {
-    if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
-    const partition = this._resolvePartition(subdb)
-    const data = await this.store.get(partition, id)
-    if (!data) {
-      throw new Error('ERR_ACTION_ID_NOT_FOUND')
-    }
+    const data = withoutRev(await this._getRecord(subdb, id))
     return { id: data.id, key: data.id, data }
+  }
+
+  async _getRecord (subdb, id) {
+    if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
+    const data = await this.store.get(this._resolvePartition(subdb), id)
+    if (!data) throw new Error('ERR_ACTION_ID_NOT_FOUND')
+    return data
   }
 
   /**
@@ -287,7 +312,7 @@ class ActionApproverFacility extends BaseFacility {
   }
 
   async _voteAction ({ id, voter, approve }) {
-    const { data } = await this.getAction('voting', id)
+    const data = await this._getRecord('voting', id)
 
     if (Array.isArray(data.eligibleVoters) && !includesVoter(data.eligibleVoters, voter)) {
       throw new Error('ERR_VOTER_NOT_ELIGIBLE')
@@ -304,15 +329,17 @@ class ActionApproverFacility extends BaseFacility {
     }
 
     votes.push(voter)
+    const expected = this._nextRev(data)
     if (votes.length < reqVotes) {
-      await this.store.conditionalUpdate(PARTITIONS.VOTING, id, ACTION_STATUS.VOTING, data)
+      const updated = await this.store.conditionalUpdate(PARTITIONS.VOTING, id, ACTION_STATUS.VOTING, data, expected)
+      if (!updated) throw new Error('ERR_ACTION_CONCURRENT_UPDATE')
       return
     }
     data.status = approve ? ACTION_STATUS.APPROVED : ACTION_STATUS.DENIED
 
     const toPartition = approve ? PARTITIONS.READY : PARTITIONS.DONE
-    const moved = await this.store.transition(PARTITIONS.VOTING, toPartition, data, ACTION_STATUS.VOTING)
-    if (!moved) throw new Error('ERR_ACTION_TRANSITION_FAILED')
+    const moved = await this.store.transition(PARTITIONS.VOTING, toPartition, data, ACTION_STATUS.VOTING, expected)
+    if (!moved) throw new Error('ERR_ACTION_CONCURRENT_UPDATE')
   }
 
   /**
@@ -326,7 +353,7 @@ class ActionApproverFacility extends BaseFacility {
   }
 
   async _cancelAction ({ id, voter }) {
-    const { data } = await this.getAction('voting', id)
+    const data = await this._getRecord('voting', id)
     if (String(data.votesPos[0]) !== String(voter)) {
       throw new Error('ERR_CALLER_NOT_CREATOR')
     }
@@ -336,9 +363,10 @@ class ActionApproverFacility extends BaseFacility {
       PARTITIONS.VOTING,
       PARTITIONS.DONE,
       data,
-      ACTION_STATUS.VOTING
+      ACTION_STATUS.VOTING,
+      this._nextRev(data)
     )
-    if (!moved) throw new Error('ERR_ACTION_TRANSITION_FAILED')
+    if (!moved) throw new Error('ERR_ACTION_CONCURRENT_UPDATE')
   }
 
   /**
@@ -356,7 +384,7 @@ class ActionApproverFacility extends BaseFacility {
     if (!reason || typeof reason !== 'string') {
       throw new Error('ERR_EXPIRE_REASON_INVALID')
     }
-    const { data } = await this.getAction('voting', id)
+    const data = await this._getRecord('voting', id)
     data.status = ACTION_STATUS.EXPIRED
     data.error = reason
 
@@ -364,10 +392,11 @@ class ActionApproverFacility extends BaseFacility {
       PARTITIONS.VOTING,
       PARTITIONS.DONE,
       data,
-      ACTION_STATUS.VOTING
+      ACTION_STATUS.VOTING,
+      this._nextRev(data)
     )
-    if (!moved) throw new Error('ERR_ACTION_TRANSITION_FAILED')
-    return data
+    if (!moved) throw new Error('ERR_ACTION_CONCURRENT_UPDATE')
+    return withoutRev(data)
   }
 
   /**
@@ -402,6 +431,7 @@ class ActionApproverFacility extends BaseFacility {
         continue
       }
 
+      const expected = this._nextRev(data)
       data.eligibleVoters = withoutVoter(data.eligibleVoters, userId)
       data.votesPos = withoutVoter(data.votesPos, userId)
       data.votesNeg = withoutVoter(data.votesNeg, userId)
@@ -413,9 +443,11 @@ class ActionApproverFacility extends BaseFacility {
           PARTITIONS.VOTING,
           PARTITIONS.DONE,
           data,
-          ACTION_STATUS.VOTING
+          ACTION_STATUS.VOTING,
+          expected
         )
-        if (moved) touched.push(moved)
+        if (!moved) throw new Error('ERR_ACTION_CONCURRENT_UPDATE')
+        touched.push(withoutRev(moved))
         continue
       }
 
@@ -429,9 +461,11 @@ class ActionApproverFacility extends BaseFacility {
           PARTITIONS.VOTING,
           PARTITIONS.READY,
           data,
-          ACTION_STATUS.VOTING
+          ACTION_STATUS.VOTING,
+          expected
         )
-        if (moved) touched.push(moved)
+        if (!moved) throw new Error('ERR_ACTION_CONCURRENT_UPDATE')
+        touched.push(withoutRev(moved))
         continue
       }
 
@@ -441,9 +475,11 @@ class ActionApproverFacility extends BaseFacility {
           PARTITIONS.VOTING,
           PARTITIONS.DONE,
           data,
-          ACTION_STATUS.VOTING
+          ACTION_STATUS.VOTING,
+          expected
         )
-        if (moved) touched.push(moved)
+        if (!moved) throw new Error('ERR_ACTION_CONCURRENT_UPDATE')
+        touched.push(withoutRev(moved))
         continue
       }
 
@@ -451,9 +487,11 @@ class ActionApproverFacility extends BaseFacility {
         PARTITIONS.VOTING,
         data.id,
         ACTION_STATUS.VOTING,
-        data
+        data,
+        expected
       )
-      if (updated) touched.push(updated)
+      if (!updated) throw new Error('ERR_ACTION_CONCURRENT_UPDATE')
+      touched.push(withoutRev(updated))
     }
 
     return touched
@@ -610,7 +648,7 @@ class ActionApproverFacility extends BaseFacility {
   async * query (subdb, range = undefined, opts = undefined) {
     if (!this.store) throw new Error('ERR_STORE_NOT_INITIALIZED')
     const partition = this._resolvePartition(subdb)
-    yield * this.store.read(partition, range, opts)
+    for await (const data of this.store.read(partition, range, opts)) yield withoutRev(data)
   }
 }
 
