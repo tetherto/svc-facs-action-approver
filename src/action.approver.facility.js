@@ -42,6 +42,7 @@ class ActionApproverFacility extends BaseFacility {
     this.claimId = null
     this._recoverItv = null
     this._activeExecutions = new Set()
+    this._unclaimedWarned = new Set()
   }
 
   /**
@@ -557,8 +558,19 @@ class ActionApproverFacility extends BaseFacility {
 
     for await (const data of this.store.read(PARTITIONS.EXECUTING)) {
       if (this._activeExecutions.has(data.id)) continue
-      const claimedAt = Number(data.claimedAt) || 0
-      if (claimedAt && claimedAt > cutoff) continue
+      if (!data.claimedAt) {
+        // v1 records carry no claim and v1 never replayed them
+        if (!this._unclaimedWarned.has(data.id)) {
+          this._unclaimedWarned.add(data.id)
+          this.caller.logger?.warn({ id: data.id, action: data.action }, 'executing action without a claim left for an operator')
+        }
+        continue
+      }
+      if (data.claimedAt > cutoff) continue
+      if (await this.store.get(PARTITIONS.DONE, data.id)) {
+        await this.store.del(PARTITIONS.EXECUTING, data.id)
+        continue
+      }
 
       const claim = {
         ...data,

@@ -441,6 +441,45 @@ async function stopFac (fac) {
   await new Promise((resolve, reject) => fac._stop(err => err ? reject(err) : resolve()))
 }
 
+test('recovery leaves a v1 executing record without a claim alone', async t => {
+  let runs = 0
+  const fac = await makeFac({ ping: async ([n]) => { runs++; return n + 1 } })
+  t.teardown(() => stopFac(fac))
+
+  const { id } = await fac.pushAction({ action: 'ping', payload: [[1]], voter: 'alice', reqVotes: 1 })
+  const ready = await fac.getAction('ready', id)
+  await fac.store.transition('ready', 'executing', { ...ready.data, status: ACTION_STATUS.EXECUTING }, ACTION_STATUS.APPROVED)
+  const warned = []
+  fac.caller.logger = { warn: (info) => warned.push(info.id) }
+
+  const recovered = await fac.recoverStaleExecuting()
+  await fac.recoverStaleExecuting()
+
+  t.alike(recovered, [])
+  t.is(runs, 0)
+  t.alike(warned, [id])
+  t.is((await fac.getAction('executing', id)).data.status, ACTION_STATUS.EXECUTING)
+})
+
+test('recovery drops a stale executing copy of a finished action', async t => {
+  let runs = 0
+  const fac = await makeFac({ ping: async ([n]) => { runs++; return n + 1 } })
+  t.teardown(() => stopFac(fac))
+
+  const { id } = await fac.pushAction({ action: 'ping', payload: [[1]], voter: 'alice', reqVotes: 1 })
+  const ready = await fac.getAction('ready', id)
+  const finished = { ...ready.data, status: ACTION_STATUS.COMPLETED, result: 'tx1' }
+  await fac.store.put('done', finished)
+  await fac.store.transition('ready', 'executing', { ...ready.data, status: ACTION_STATUS.EXECUTING, claimedBy: 'dead', claimedAt: Date.now() - 10_000 }, ACTION_STATUS.APPROVED)
+
+  const recovered = await fac.recoverStaleExecuting()
+
+  t.alike(recovered, [])
+  t.is(runs, 0)
+  t.is((await fac.getAction('done', id)).data.result, 'tx1')
+  await t.exception(fac.getAction('executing', id), /ERR_ACTION_ID_NOT_FOUND/)
+})
+
 const MONGO_URI = process.env.APPROVER_TEST_MONGO_URI
 
 async function mongoFacs (t, wrk = { ping: ([n]) => n + 1 }) {
