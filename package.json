@@ -39,8 +39,8 @@
   },
   "homepage": "https://github.com/tetherto/svc-facs-action-approver#readme",
   "dependencies": {
-    "@bitfinex/bfx-facs-base": "^1.1.0",
-    "@bitfinex/lib-js-util-task-queue": "^1.0.1",
+    "@bitfinex/bfx-facs-base": "^2.0.0",
+    "@bitfinex/lib-js-util-task-queue": "^2.0.1",
     "async": "^3.2.1",
     "hyperbee": "^2.18.2",
     "hyperdb": "^4.18.0",
