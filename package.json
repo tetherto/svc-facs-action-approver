@@ -1,6 +1,6 @@
 {
   "name": "@tetherto/svc-facs-action-approver",
-  "version": "2.0.0",
+  "version": "1.0.2",
   "description": "svc facility for multi-party action approval (hyperbee, hyperdb, mongodb)",
   "main": "index.js",
   "scripts": {
